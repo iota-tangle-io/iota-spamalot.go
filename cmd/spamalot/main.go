@@ -87,14 +87,10 @@ func main() {
 			bad++
 			continue
 		}
+
 		err = giota.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
 		if err != nil {
 			log.Println("Error sending transaction:", err)
-			bad++
-			continue
-		}
-		if err != nil {
-			log.Println("Failed to send transaction:", err)
 			bad++
 			continue
 		}
