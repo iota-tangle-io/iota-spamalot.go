@@ -30,7 +30,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/iotaledger/giota"
+	"github.com/cwarner818/giota"
 	flag "github.com/ogier/pflag"
 )
 
