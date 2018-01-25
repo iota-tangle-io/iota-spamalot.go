@@ -81,26 +81,27 @@ func main() {
 	var good, bad int
 	for {
 		start := time.Now()
+		txnCount++
 		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", 2)
 		if err != nil {
 			log.Println("Error preparing transfer:", err)
 			bad++
-			continue
+		} else {
+			err = giota.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
+			if err != nil {
+				log.Println("Error sending transaction:", err)
+				bad++
+			}
 		}
 
-		err = giota.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
-		if err != nil {
-			log.Println("Error sending transaction:", err)
-			bad++
-			continue
+		if err == nil {
+			good++
+			log.Println("SENT:", bdl.Hash())
 		}
 
-		good++
-		txnCount++
-		log.Println("SENT:", bdl.Hash())
 		dur := time.Since(start)
 		totalTime += dur.Seconds()
-		tps := totalTime / txnCount
+		tps := txnCount / totalTime
 		log.Printf("%.2f TPS -- %.0f%% success", tps,
 			100*(float64(good)/(float64(good)+float64(bad))))
 
