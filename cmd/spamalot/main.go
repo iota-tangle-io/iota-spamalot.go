@@ -101,8 +101,10 @@ func main() {
 		dur := time.Since(start)
 		totalTime += dur.Seconds()
 		tps := totalTime / txnCount
-		log.Printf("%.2f TPS -- %.0f%% success", tps, 100*(float64(good)/(float64(good)+float64(bad))))
+		log.Printf("%.2f TPS -- %.0f%% success", tps,
+			100*(float64(good)/(float64(good)+float64(bad))))
 
-		txnCount++
+		log.Printf("Duration: %s Count: %.0f", dur.String(), txnCount)
+
 	}
 }
