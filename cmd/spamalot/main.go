@@ -25,6 +25,7 @@ SOFTWARE.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -34,17 +35,29 @@ import (
 	flag "github.com/ogier/pflag"
 )
 
-func main() {
-	var mwm *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
-	var depth *int64 = flag.Int64("depth", giota.Depth, "whatever depth is")
+var (
+	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
+	depth *int64 = flag.Int64("depth", giota.Depth, "whatever depth is")
 
-	var destAddress *string = flag.String("dest",
+	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
 
-	var tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
-	var msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9ONE", "transaction message")
+	tag    *string = flag.String("tag", "999SPAMALOT", "transaction tag")
+	msg    *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9ONE", "transaction message")
+	server *string = flag.String("node", "http://localhost:14265", "remote node to connect to")
 
-	var server *string = flag.String("node", "http://localhost:14265", "remote node to connect to")
+	filterTrunk *bool = flag.Bool("trunk", false,
+		"do not send a transaction with our own transaction as a trunk")
+
+	filterBranch *bool = flag.Bool("branch", false,
+		"do not send a transaction with our own transaction as a branch")
+
+	filterBoth *bool = flag.Bool("both", false,
+		"do not send a transaction with our own transaction as a branch and a trunk")
+	badTrunk, badBranch, badBoth int
+)
+
+func main() {
 	flag.Parse()
 	seed := giota.NewSeed()
 
@@ -87,7 +100,7 @@ func main() {
 			log.Println("Error preparing transfer:", err)
 			bad++
 		} else {
-			err = giota.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
+			err = SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
 			if err != nil {
 				log.Println("Error sending transaction:", err)
 				bad++
@@ -105,7 +118,84 @@ func main() {
 		log.Printf("%.2f TPS -- %.0f%% success", tps,
 			100*(float64(good)/(float64(good)+float64(bad))))
 
-		log.Printf("Duration: %s Count: %.0f", dur.String(), txnCount)
+		log.Printf("Duration: %s Count: %.0f Bad Trunk: %d Bad Branch: %d Both: %d",
+			dur.String(), txnCount, badTrunk, badBranch, badBoth)
 
 	}
+}
+
+func SendTrytes(api *giota.API, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
+	tra, err := api.GetTransactionsToApprove(depth)
+	if err != nil {
+		return err
+	}
+
+	txns, err := api.GetTrytes([]giota.Trytes{
+		tra.TrunkTransaction,
+		tra.BranchTransaction,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	tTag := string(txns.Trytes[0].Tag)
+	bTag := string(txns.Trytes[1].Tag)
+	if *filterBoth && (tTag == bTag) && bTag == "999SPAMALOT9999999999999999" {
+		badBoth++
+		return errors.New("Trunk and branch tag is ours")
+	} else if *filterTrunk && tTag == "999SPAMALOT9999999999999999" {
+		badTrunk++
+		return errors.New("Trunk tag is ours")
+	} else if *filterBranch && bTag == "999SPAMALOT9999999999999999" {
+		badBranch++
+		return errors.New("Branch tag is ours")
+	}
+	switch {
+	case pow == nil:
+		at := giota.AttachToTangleRequest{
+			TrunkTransaction:   tra.TrunkTransaction,
+			BranchTransaction:  tra.BranchTransaction,
+			MinWeightMagnitude: mwm,
+			Trytes:             trytes,
+		}
+
+		// attach to tangle - do pow
+		attached, err := api.AttachToTangle(&at)
+		if err != nil {
+			return err
+		}
+
+		trytes = attached.Trytes
+	default:
+		err := doPow(tra, depth, trytes, mwm, pow)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Broadcast and store tx
+	return api.BroadcastTransactions(trytes)
+}
+func doPow(tra *giota.GetTransactionsToApproveResponse, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
+	var prev giota.Trytes
+	var err error
+	for i := len(trytes) - 1; i >= 0; i-- {
+		switch {
+		case i == len(trytes)-1:
+			trytes[i].TrunkTransaction = tra.TrunkTransaction
+			trytes[i].BranchTransaction = tra.BranchTransaction
+		default:
+			trytes[i].TrunkTransaction = prev
+			trytes[i].BranchTransaction = tra.TrunkTransaction
+		}
+
+		trytes[i].Nonce, err = pow(trytes[i].Trytes(), int(mwm))
+		if err != nil {
+			return err
+		}
+
+		prev = trytes[i].Hash()
+	}
+	return nil
 }
