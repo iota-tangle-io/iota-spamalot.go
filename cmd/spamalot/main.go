@@ -54,7 +54,11 @@ var (
 
 	filterBoth *bool = flag.Bool("both", false,
 		"do not send a transaction with our own transaction as a branch and a trunk")
+
 	badTrunk, badBranch, badBoth int
+
+	remotePow *bool = flag.Bool("pow", false,
+		"if set, do PoW calculation on remote node via API")
 )
 
 func main() {
@@ -87,8 +91,16 @@ func main() {
 	fmt.Printf("using IRI server: %s\n", *server)
 
 	api := giota.NewAPI(*server, nil)
-	name, pow := giota.GetBestPoW()
-	fmt.Fprintf(os.Stderr, "using PoW:%s\n", name)
+	var pow giota.PowFunc
+
+	if !*remotePow {
+		var name string
+		name, pow = giota.GetBestPoW()
+		fmt.Fprintf(os.Stderr, "using PoW:%s\n", name)
+	} else {
+		fmt.Fprintf(os.Stderr, "using PoW:attachToTangle\n")
+	}
+
 	var txnCount float64
 	var totalTime float64
 	var good, bad int
@@ -152,7 +164,7 @@ func SendTrytes(api *giota.API, depth int64, trytes []giota.Transaction, mwm int
 		return errors.New("Branch tag is ours")
 	}
 	switch {
-	case pow == nil:
+	case *remotePow || pow == nil:
 		at := giota.AttachToTangleRequest{
 			TrunkTransaction:   tra.TrunkTransaction,
 			BranchTransaction:  tra.BranchTransaction,
