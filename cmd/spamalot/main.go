@@ -110,10 +110,10 @@ func main() {
 	}
 
 	var txnCount float64
-	var totalTime float64
+	//var totalTime float64
 	var good, bad int
+	start := time.Now()
 	for {
-		start := time.Now()
 		txnCount++
 		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", 2)
 		if err != nil {
@@ -133,8 +133,8 @@ func main() {
 		}
 
 		dur := time.Since(start)
-		totalTime += dur.Seconds()
-		tps := txnCount / totalTime
+		//totalTime += dur.Seconds()
+		tps := float64(good) / dur.Seconds()
 		log.Printf("%.2f TPS -- %.0f%% success", tps,
 			100*(float64(good)/(float64(good)+float64(bad))))
 
