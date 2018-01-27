@@ -61,6 +61,14 @@ var (
 		"if set, do PoW calculation on remote node via API")
 )
 
+func padTag(tag string) string {
+	for {
+		tag += "9"
+		if len(tag) > 27 {
+			return tag[0:27]
+		}
+	}
+}
 func main() {
 	flag.Parse()
 	seed := giota.NewSeed()
@@ -121,7 +129,7 @@ func main() {
 
 		if err == nil {
 			good++
-			log.Println("SENT:", bdl.Hash())
+			log.Println("http://thetangle.org/bundle/" + bdl.Hash())
 		}
 
 		dur := time.Since(start)
@@ -151,18 +159,53 @@ func SendTrytes(api *giota.API, depth int64, trytes []giota.Transaction, mwm int
 		return err
 	}
 
+	paddedTag := padTag(*tag)
 	tTag := string(txns.Trytes[0].Tag)
 	bTag := string(txns.Trytes[1].Tag)
-	if *filterBoth && (tTag == bTag) && bTag == "999SPAMALOT9999999999999999" {
-		badBoth++
-		return errors.New("Trunk and branch tag is ours")
-	} else if *filterTrunk && tTag == "999SPAMALOT9999999999999999" {
-		badTrunk++
-		return errors.New("Trunk tag is ours")
-	} else if *filterBranch && bTag == "999SPAMALOT9999999999999999" {
-		badBranch++
-		return errors.New("Branch tag is ours")
+
+	/*
+		if *filterBoth && (tTag == bTag) && bTag == *tag {
+			badBoth++
+			return errors.New("Trunk and branch tag is ours")
+		} else if *filterTrunk && tTag == *tag {
+			badTrunk++
+			return errors.New("Trunk tag is ours")
+		} else if *filterBranch && bTag == *tag {
+			badBranch++
+			return errors.New("Branch tag is ours")
+		}
+	*/
+
+	var branchIsBad, trunkIsBad, bothAreBad bool
+	if bTag == paddedTag {
+		branchIsBad = true
 	}
+
+	if tTag == paddedTag {
+		trunkIsBad = true
+	}
+
+	if trunkIsBad && branchIsBad {
+		bothAreBad = true
+	}
+
+	if bothAreBad {
+		badBoth++
+		if *filterBoth || *filterTrunk || *filterBranch {
+			return errors.New("Trunk and branch txn tag is ours")
+		}
+	} else if trunkIsBad {
+		badTrunk++
+		if *filterTrunk {
+			return errors.New("Trunk txn tag is ours")
+		}
+	} else if branchIsBad {
+		badBranch++
+		if *filterBranch {
+			return errors.New("Branch txn tag is ours")
+		}
+	}
+
 	switch {
 	case *remotePow || pow == nil:
 		at := giota.AttachToTangleRequest{
