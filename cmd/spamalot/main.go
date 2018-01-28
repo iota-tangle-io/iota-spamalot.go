@@ -25,13 +25,13 @@ SOFTWARE.
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
 	"github.com/cwarner818/giota"
+	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	flag "github.com/ogier/pflag"
 )
 
@@ -52,25 +52,27 @@ var (
 	filterBranch *bool = flag.Bool("branch", false,
 		"do not send a transaction with our own transaction as a branch")
 
-	filterBoth *bool = flag.Bool("both", false,
-		"do not send a transaction with our own transaction as a branch and a trunk")
-
 	badTrunk, badBranch, badBoth int
 
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
 )
 
-func padTag(tag string) string {
-	for {
-		tag += "9"
-		if len(tag) > 27 {
-			return tag[0:27]
-		}
-	}
-}
 func main() {
 	flag.Parse()
+
+	// This will be imrpoved in the future but for now it works
+	spammer := spamalot.New()
+	spammer.Node = *server
+	spammer.MWM = *mwm
+	spammer.Depth = *depth
+	spammer.DestAddress = *destAddress
+	spammer.Tag = *tag
+	spammer.Message = *msg
+	spammer.FilterTrunk = *filterTrunk
+	spammer.FilterBranch = *filterBranch
+	spammer.RemotePow = *remotePow
+
 	seed := giota.NewSeed()
 
 	recipientT, err := giota.ToAddress(*destAddress)
@@ -120,7 +122,7 @@ func main() {
 			log.Println("Error preparing transfer:", err)
 			bad++
 		} else {
-			err = SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
+			err = spammer.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
 			if err != nil {
 				log.Println("Error sending transaction:", err)
 				bad++
@@ -142,115 +144,4 @@ func main() {
 			dur.String(), txnCount, badTrunk, badBranch, badBoth)
 
 	}
-}
-
-func SendTrytes(api *giota.API, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
-	tra, err := api.GetTransactionsToApprove(depth)
-	if err != nil {
-		return err
-	}
-
-	txns, err := api.GetTrytes([]giota.Trytes{
-		tra.TrunkTransaction,
-		tra.BranchTransaction,
-	})
-
-	if err != nil {
-		return err
-	}
-
-	paddedTag := padTag(*tag)
-	tTag := string(txns.Trytes[0].Tag)
-	bTag := string(txns.Trytes[1].Tag)
-
-	/*
-		if *filterBoth && (tTag == bTag) && bTag == *tag {
-			badBoth++
-			return errors.New("Trunk and branch tag is ours")
-		} else if *filterTrunk && tTag == *tag {
-			badTrunk++
-			return errors.New("Trunk tag is ours")
-		} else if *filterBranch && bTag == *tag {
-			badBranch++
-			return errors.New("Branch tag is ours")
-		}
-	*/
-
-	var branchIsBad, trunkIsBad, bothAreBad bool
-	if bTag == paddedTag {
-		branchIsBad = true
-	}
-
-	if tTag == paddedTag {
-		trunkIsBad = true
-	}
-
-	if trunkIsBad && branchIsBad {
-		bothAreBad = true
-	}
-
-	if bothAreBad {
-		badBoth++
-		if *filterBoth || *filterTrunk || *filterBranch {
-			return errors.New("Trunk and branch txn tag is ours")
-		}
-	} else if trunkIsBad {
-		badTrunk++
-		if *filterTrunk {
-			return errors.New("Trunk txn tag is ours")
-		}
-	} else if branchIsBad {
-		badBranch++
-		if *filterBranch {
-			return errors.New("Branch txn tag is ours")
-		}
-	}
-
-	switch {
-	case *remotePow || pow == nil:
-		at := giota.AttachToTangleRequest{
-			TrunkTransaction:   tra.TrunkTransaction,
-			BranchTransaction:  tra.BranchTransaction,
-			MinWeightMagnitude: mwm,
-			Trytes:             trytes,
-		}
-
-		// attach to tangle - do pow
-		attached, err := api.AttachToTangle(&at)
-		if err != nil {
-			return err
-		}
-
-		trytes = attached.Trytes
-	default:
-		err := doPow(tra, depth, trytes, mwm, pow)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Broadcast and store tx
-	return api.BroadcastTransactions(trytes)
-}
-func doPow(tra *giota.GetTransactionsToApproveResponse, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
-	var prev giota.Trytes
-	var err error
-	for i := len(trytes) - 1; i >= 0; i-- {
-		switch {
-		case i == len(trytes)-1:
-			trytes[i].TrunkTransaction = tra.TrunkTransaction
-			trytes[i].BranchTransaction = tra.BranchTransaction
-		default:
-			trytes[i].TrunkTransaction = prev
-			trytes[i].BranchTransaction = tra.TrunkTransaction
-		}
-
-		trytes[i].Nonce, err = pow(trytes[i].Trytes(), int(mwm))
-		if err != nil {
-			return err
-		}
-
-		prev = trytes[i].Hash()
-	}
-	return nil
 }
