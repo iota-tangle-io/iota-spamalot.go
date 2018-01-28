@@ -26,11 +26,10 @@ package main
 
 import (
 	"log"
-	"time"
 
 	"github.com/cwarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
-	flag "github.com/ogier/pflag"
+	flag "github.com/spf13/pflag"
 )
 
 var (
@@ -40,17 +39,15 @@ var (
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
 
-	tag    *string = flag.String("tag", "999SPAMALOT", "transaction tag")
-	msg    *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9ONE", "transaction message")
-	server *string = flag.String("node", "http://localhost:14265", "remote node to connect to")
+	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
+	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9TWO", "transaction message")
+	//nodes *[]string = flag.StringSlice("node", []string{"http://localhost:14265"}, "remote node to connect to")
 
 	filterTrunk *bool = flag.Bool("trunk", false,
 		"do not send a transaction with our own transaction as a trunk")
 
 	filterBranch *bool = flag.Bool("branch", false,
 		"do not send a transaction with our own transaction as a branch")
-
-	badTrunk, badBranch, badBoth int
 
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
@@ -59,7 +56,15 @@ var (
 func main() {
 	flag.Parse()
 
-	s, err := spamalot.New([]string{*server},
+	var pow giota.PowFunc
+	var powName string
+	if !*remotePow {
+		powName, pow = giota.GetBestPoW()
+		log.Println("Using PoW:", powName)
+
+	}
+	s, err := spamalot.New(
+		spamalot.WithNode("http://localhot:14265", false),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
@@ -67,7 +72,7 @@ func main() {
 		spamalot.WithMessage(*msg),
 		spamalot.FilterTrunk(*filterTrunk),
 		spamalot.FilterBranch(*filterBranch),
-		spamalot.WithRemotePoW(*remotePow),
+		spamalot.WithPoW(pow),
 	)
 
 	if err != nil {
@@ -75,76 +80,5 @@ func main() {
 		return
 	}
 
-	seed := giota.NewSeed()
-
-	recipientT, err := giota.ToAddress(*destAddress)
-	if err != nil {
-		panic(err)
-	}
-	ttag, err := giota.ToTrytes(*tag)
-	if err != nil {
-		panic(err)
-	}
-	tmsg, err := giota.ToTrytes(*msg)
-	if err != nil {
-		panic(err)
-	}
-	trs := []giota.Transfer{
-		giota.Transfer{
-			Address: recipientT,
-			Value:   0,
-			Tag:     ttag,
-			Message: tmsg,
-		},
-	}
-
-	var bdl giota.Bundle
-	log.Println("IOTΛ Spamalot starting")
-
-	log.Println("Using IRI node:", *server)
-
-	api := giota.NewAPI(*server, nil)
-	var pow giota.PowFunc
-
-	powName := "attachToTangle"
-	if !*remotePow {
-		var name string
-		name, pow = giota.GetBestPoW()
-		powName = name
-	}
-	log.Println("Using PoW:", powName)
-
-	var txnCount float64
-	//var totalTime float64
-	var good, bad int
-	start := time.Now()
-	for {
-		txnCount++
-		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", 2)
-		if err != nil {
-			log.Println("Error preparing transfer:", err)
-			bad++
-		} else {
-			err = s.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
-			if err != nil {
-				log.Println("Error sending transaction:", err)
-				bad++
-			}
-		}
-
-		if err == nil {
-			good++
-			log.Println("http://thetangle.org/bundle/" + bdl.Hash())
-		}
-
-		dur := time.Since(start)
-		//totalTime += dur.Seconds()
-		tps := float64(good) / dur.Seconds()
-		log.Printf("%.2f TPS -- %.0f%% success", tps,
-			100*(float64(good)/(float64(good)+float64(bad))))
-
-		log.Printf("Duration: %s Count: %.0f Bad Trunk: %d Bad Branch: %d Both: %d",
-			dur.String(), txnCount, badTrunk, badBranch, badBoth)
-
-	}
+	s.Start()
 }
