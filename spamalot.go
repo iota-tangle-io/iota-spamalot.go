@@ -1,34 +1,143 @@
+/*
+MIT License
+
+Copyright (c) 2018 iota-tangle.io
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+// spamalot description here. writing documentation is no fun.
 package spamalot
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/cwarner818/giota"
 )
 
+const ()
+
 type Spammer struct {
-	Node         string
-	MWM          int64
-	Depth        int64
-	DestAddress  string
-	Tag          string
-	Message      string
-	FilterTrunk  bool
-	FilterBranch bool
-	RemotePow    bool
+	sync.RWMutex
+	node        string
+	mwm         int64
+	depth       int64
+	destAddress string
+	tag         string
+	message     string
+
+	filterTrunk  bool
+	filterBranch bool
+
+	remotePoW bool
 
 	badBranch, badTrunk, badBoth int
 }
 
-func New() *Spammer {
-	return &Spammer{}
+type Option func(*Spammer) error
+
+func New(node string, options ...Option) (*Spammer, error) {
+	if node == "" {
+		return nil, errors.New("You must specify a node to connect to")
+	}
+	s := &Spammer{
+		node: node,
+	}
+	for _, option := range options {
+		err := option(s)
+
+		return s, err
+	}
+	return s, nil
+}
+func (s *Spammer) UpdateConfig(options ...Option) error {
+	s.Lock()
+	defer s.Unlock()
+	for _, option := range options {
+		err := option(s)
+		return err
+	}
+	return nil
+}
+func WithMessage(msg string) Option {
+	return func(s *Spammer) error {
+		// TODO: check msg for validity
+		s.message = msg
+		return nil
+	}
+}
+func WithTag(tag string) Option {
+	return func(s *Spammer) error {
+		// TODO: check tag for validity
+		s.tag = tag
+		return nil
+	}
+}
+func ToAddress(addr string) Option {
+	return func(s *Spammer) error {
+		// TODO: Check address for validity
+		s.destAddress = addr
+		return nil
+	}
+}
+func WithRemotePoW(remotePoW bool) Option {
+	return func(s *Spammer) error {
+		s.remotePoW = remotePoW
+		return nil
+	}
+}
+func FilterTrunk(filter bool) Option {
+	return func(s *Spammer) error {
+		s.filterTrunk = filter
+		return nil
+	}
+}
+func FilterBranch(filter bool) Option {
+	return func(s *Spammer) error {
+		s.filterBranch = filter
+		return nil
+	}
+}
+func WithDepth(depth int64) Option {
+	return func(s *Spammer) error {
+		s.depth = depth
+		return nil
+	}
 }
 
-func Close() error {
+func WithMWM(mwm int64) Option {
+	return func(s *Spammer) error {
+		s.mwm = mwm
+		return nil
+	}
+}
+
+func (s *Spammer) Close() error {
+
 	return nil
 }
 
 func (s *Spammer) SendTrytes(api *giota.API, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
+	if s == nil {
+		return errors.New("cannot SendTrytes with nil Spammer")
+	}
 	tra, err := api.GetTransactionsToApprove(depth)
 	if err != nil {
 		return err
@@ -43,7 +152,7 @@ func (s *Spammer) SendTrytes(api *giota.API, depth int64, trytes []giota.Transac
 		return err
 	}
 
-	paddedTag := padTag(s.Tag)
+	paddedTag := padTag(s.tag)
 	tTag := string(txns.Trytes[0].Tag)
 	bTag := string(txns.Trytes[1].Tag)
 
@@ -62,23 +171,23 @@ func (s *Spammer) SendTrytes(api *giota.API, depth int64, trytes []giota.Transac
 
 	if bothAreBad {
 		s.badBoth++
-		if s.FilterTrunk || s.FilterBranch {
+		if s.filterTrunk || s.filterBranch {
 			return errors.New("Trunk and branch txn tag is ours")
 		}
 	} else if trunkIsBad {
 		s.badTrunk++
-		if s.FilterTrunk {
+		if s.filterTrunk {
 			return errors.New("Trunk txn tag is ours")
 		}
 	} else if branchIsBad {
 		s.badBranch++
-		if s.FilterBranch {
+		if s.filterBranch {
 			return errors.New("Branch txn tag is ours")
 		}
 	}
 
 	switch {
-	case s.RemotePow || pow == nil:
+	case s.remotePoW || pow == nil:
 		at := giota.AttachToTangleRequest{
 			TrunkTransaction:   tra.TrunkTransaction,
 			BranchTransaction:  tra.BranchTransaction,

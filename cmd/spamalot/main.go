@@ -25,9 +25,7 @@ SOFTWARE.
 package main
 
 import (
-	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/cwarner818/giota"
@@ -61,17 +59,21 @@ var (
 func main() {
 	flag.Parse()
 
-	// This will be imrpoved in the future but for now it works
-	spammer := spamalot.New()
-	spammer.Node = *server
-	spammer.MWM = *mwm
-	spammer.Depth = *depth
-	spammer.DestAddress = *destAddress
-	spammer.Tag = *tag
-	spammer.Message = *msg
-	spammer.FilterTrunk = *filterTrunk
-	spammer.FilterBranch = *filterBranch
-	spammer.RemotePow = *remotePow
+	s, err := spamalot.New(*server,
+		spamalot.WithMWM(*mwm),
+		spamalot.WithDepth(*depth),
+		spamalot.ToAddress(*destAddress),
+		spamalot.WithTag(*tag),
+		spamalot.WithMessage(*msg),
+		spamalot.FilterTrunk(*filterTrunk),
+		spamalot.FilterBranch(*filterBranch),
+		spamalot.WithRemotePoW(*remotePow),
+	)
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
 	seed := giota.NewSeed()
 
@@ -97,19 +99,20 @@ func main() {
 	}
 
 	var bdl giota.Bundle
+	log.Println("IOTΛ Spamalot starting")
 
-	fmt.Printf("using IRI server: %s\n", *server)
+	log.Println("Using IRI node:", *server)
 
 	api := giota.NewAPI(*server, nil)
 	var pow giota.PowFunc
 
+	powName := "attachToTangle"
 	if !*remotePow {
 		var name string
 		name, pow = giota.GetBestPoW()
-		fmt.Fprintf(os.Stderr, "using PoW:%s\n", name)
-	} else {
-		fmt.Fprintf(os.Stderr, "using PoW:attachToTangle\n")
+		powName = name
 	}
+	log.Println("Using PoW:", powName)
 
 	var txnCount float64
 	//var totalTime float64
@@ -122,7 +125,7 @@ func main() {
 			log.Println("Error preparing transfer:", err)
 			bad++
 		} else {
-			err = spammer.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
+			err = s.SendTrytes(api, *depth, []giota.Transaction(bdl), *mwm, pow)
 			if err != nil {
 				log.Println("Error sending transaction:", err)
 				bad++
