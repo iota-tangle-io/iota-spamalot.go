@@ -59,7 +59,7 @@ var (
 func main() {
 	flag.Parse()
 
-	s, err := spamalot.New(*server,
+	s, err := spamalot.New([]string{*server},
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),

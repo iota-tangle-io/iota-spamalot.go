@@ -36,7 +36,7 @@ const ()
 
 type Spammer struct {
 	sync.RWMutex
-	node        string
+	nodes       []string
 	mwm         int64
 	depth       int64
 	destAddress string
@@ -53,12 +53,12 @@ type Spammer struct {
 
 type Option func(*Spammer) error
 
-func New(node string, options ...Option) (*Spammer, error) {
-	if node == "" {
-		return nil, errors.New("You must specify a node to connect to")
+func New(nodes []string, options ...Option) (*Spammer, error) {
+	if len(nodes) == 0 {
+		return nil, errors.New("You must specify at least one node to connect to")
 	}
 	s := &Spammer{
-		node: node,
+		nodes: nodes,
 	}
 	for _, option := range options {
 		err := option(s)
@@ -130,7 +130,6 @@ func WithMWM(mwm int64) Option {
 }
 
 func (s *Spammer) Close() error {
-
 	return nil
 }
 
