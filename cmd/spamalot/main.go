@@ -64,7 +64,7 @@ func main() {
 
 	}
 	s, err := spamalot.New(
-		spamalot.WithNode("http://localhot:14265", false),
+		spamalot.WithNode("http://localhost:14625", false),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),

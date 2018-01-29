@@ -200,12 +200,14 @@ func (s *Spammer) Start() {
 		api := giota.NewAPI(node.URL, nil)
 		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", 2)
 		if err != nil {
+			s.txnFail++
 			log.Println("Error preparing transfer:", err)
 			continue
 		}
 
 		txns, err := s.buildTransactions(api, bdl, s.pow)
 		if err != nil {
+			s.txnFail++
 			log.Println("Error building txn", node.URL, err)
 			continue
 		}
@@ -242,6 +244,8 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 
 			attached, err := w.api.AttachToTangle(&at)
 			if err != nil {
+
+				w.spammer.txnFail++
 				log.Println("Error attaching to tangle:", err)
 				continue
 			}
@@ -249,14 +253,17 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 			txn.Transactions = attached.Trytes
 		default:
 
-			log.Println("doing PoW")
 			w.spammer.powMu.Lock()
-			defer w.spammer.powMu.Unlock()
+			log.Println("doing PoW")
 			err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
 			if err != nil {
+
+				w.spammer.txnFail++
 				log.Println("Error doing PoW:", err)
+				w.spammer.powMu.Unlock()
 				continue
 			}
+			w.spammer.powMu.Unlock()
 		}
 
 		err := w.api.BroadcastTransactions(txn.Transactions)
@@ -300,6 +307,7 @@ type Transaction struct {
 
 func (s *Spammer) buildTransactions(api *giota.API, trytes []giota.Transaction,
 	pow giota.PowFunc) (*Transaction, error) {
+
 	tra, err := api.GetTransactionsToApprove(s.depth)
 	if err != nil {
 		log.Println("GetTransactionsToApprove error", err)
