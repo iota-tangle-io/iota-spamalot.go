@@ -40,7 +40,7 @@ var (
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
 
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
-	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9TWO", "transaction message")
+	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
 	//nodes *[]string = flag.StringSlice("node", []string{"http://localhost:14265"}, "remote node to connect to")
 
 	filterTrunk *bool = flag.Bool("trunk", false,
@@ -49,6 +49,8 @@ var (
 	filterBranch *bool = flag.Bool("branch", false,
 		"do not send a transaction with our own transaction as a branch")
 
+	filterMilestone *bool = flag.Bool("milestone", false,
+		"do not send a transaction with a milestone as a trunk or branch")
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
 )
@@ -72,6 +74,7 @@ func main() {
 		spamalot.WithMessage(*msg),
 		spamalot.FilterTrunk(*filterTrunk),
 		spamalot.FilterBranch(*filterBranch),
+		spamalot.FilterMilestone(*filterMilestone),
 		spamalot.WithPoW(pow),
 	)
 

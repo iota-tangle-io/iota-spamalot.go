@@ -29,6 +29,7 @@ import (
 	"errors"
 	"log"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,19 +51,22 @@ type Spammer struct {
 	tag         string
 	message     string
 
-	filterTrunk  bool
-	filterBranch bool
+	filterTrunk     bool
+	filterBranch    bool
+	filterMilestone bool
 
 	remotePoW bool
 
 	pow giota.PowFunc
 	wg  sync.WaitGroup
 
-	powMu sync.Mutex
+	tipsChan chan Tips
+	powMu    sync.Mutex
 
 	startTime time.Time
 
 	txnSuccess, txnFail, badBranch, badTrunk, badBoth int
+	milestoneTrunk, milestoneBranch                   int
 }
 
 type Option func(*Spammer) error
@@ -135,6 +139,13 @@ func FilterBranch(filter bool) Option {
 		return nil
 	}
 }
+func FilterMilestone(filter bool) Option {
+	return func(s *Spammer) error {
+		s.filterMilestone = filter
+		return nil
+	}
+}
+
 func WithDepth(depth int64) Option {
 	return func(s *Spammer) error {
 		s.depth = depth
@@ -182,7 +193,8 @@ func (s *Spammer) Start() {
 
 	powName, _ := giota.GetBestPoW()
 	log.Println("Using IRI nodes:", s.nodes, "and PoW:", powName)
-	txnChan := make(chan Transaction, 100)
+	txnChan := make(chan Transaction, 50)
+	s.tipsChan = make(chan Tips, 50)
 	for _, node := range s.nodes {
 
 		w := worker{
@@ -190,7 +202,8 @@ func (s *Spammer) Start() {
 			api:     giota.NewAPI(node.URL, nil),
 			spammer: s,
 		}
-		s.wg.Add(1)
+		s.wg.Add(2)
+		go w.getTips(s.tipsChan, &s.wg)
 		go w.spam(txnChan, &s.wg)
 	}
 
@@ -205,22 +218,53 @@ func (s *Spammer) Start() {
 			continue
 		}
 
-		txns, err := s.buildTransactions(api, bdl, s.pow)
+		txns, err := s.buildTransactions(bdl, s.pow)
 		if err != nil {
 			s.txnFail++
 			log.Println("Error building txn", node.URL, err)
 			continue
 		}
 		txnChan <- *txns
-
 	}
-
 }
 
 type worker struct {
 	node    Node
 	api     *giota.API
 	spammer *Spammer
+}
+
+func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
+		if err != nil {
+			log.Println("GetTransactionsToApprove error", err)
+			continue
+		}
+
+		txns, err := w.api.GetTrytes([]giota.Trytes{
+			tips.TrunkTransaction,
+			tips.BranchTransaction,
+		})
+
+		if err != nil {
+			//return nil, err
+			log.Println("GetTrytes error:", err)
+			continue
+		}
+		log.Println("Got tips from", w.node.URL)
+
+		// TODO: Need a way to exit this go routine
+		tipsChan <- Tips{
+			Trunk:      txns.Trytes[0],
+			TrunkHash:  tips.TrunkTransaction,
+			Branch:     txns.Trytes[1],
+			BranchHash: tips.BranchTransaction,
+			Duration:   tips.Duration,
+		}
+
+	}
 }
 
 func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
@@ -291,8 +335,9 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 		log.Printf("%.2f TPS -- %.0f%% success", tps,
 			100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail))))
 
-		log.Printf("Duration: %s Count: %d Bad Trunk: %d Bad Branch: %d Both: %d",
-			dur.String(), w.spammer.txnSuccess, w.spammer.badTrunk, w.spammer.badBranch, w.spammer.badBoth)
+		log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
+			dur.String(), w.spammer.txnSuccess, w.spammer.milestoneTrunk,
+			w.spammer.milestoneBranch, w.spammer.badTrunk, w.spammer.badBranch, w.spammer.badBoth)
 	}
 }
 
@@ -300,32 +345,45 @@ func (s *Spammer) Stop() error {
 	return nil
 }
 
+type Tips struct {
+	Trunk, Branch         giota.Transaction
+	TrunkHash, BranchHash giota.Trytes
+	Duration              int64
+}
+
 type Transaction struct {
 	Trunk, Branch giota.Trytes
 	Transactions  []giota.Transaction
 }
 
-func (s *Spammer) buildTransactions(api *giota.API, trytes []giota.Transaction,
+const milestoneAddr = "KPWCHICGJZXKE9GSUDXZYUAPLHAKAHYHDXNPHENTERYMMBQOPSQIDENXKLKCEYCPVTZQLEEJVYJZV9BWU"
+
+func (s *Spammer) buildTransactions(trytes []giota.Transaction,
 	pow giota.PowFunc) (*Transaction, error) {
 
-	tra, err := api.GetTransactionsToApprove(s.depth)
-	if err != nil {
-		log.Println("GetTransactionsToApprove error", err)
-		return nil, err
-	}
+	/*
+		tra, err := api.GetTransactionsToApprove(s.depth)
+		if err != nil {
+			log.Println("GetTransactionsToApprove error", err)
+			return nil, err
+		}
 
-	txns, err := api.GetTrytes([]giota.Trytes{
-		tra.TrunkTransaction,
-		tra.BranchTransaction,
-	})
+		txns, err := api.GetTrytes([]giota.Trytes{
+			tra.TrunkTransaction,
+			tra.BranchTransaction,
+		})
 
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			return nil, err
+		}
+
+	*/
+
+	tips := <-s.tipsChan
 
 	paddedTag := padTag(s.tag)
-	tTag := string(txns.Trytes[0].Tag)
-	bTag := string(txns.Trytes[1].Tag)
+	tTag := string(tips.Trunk.Tag)
+	bTag := string(tips.Branch.Tag)
 
 	var branchIsBad, trunkIsBad, bothAreBad bool
 	if bTag == paddedTag {
@@ -338,6 +396,19 @@ func (s *Spammer) buildTransactions(api *giota.API, trytes []giota.Transaction,
 
 	if trunkIsBad && branchIsBad {
 		bothAreBad = true
+	}
+
+	if strings.Contains(string(tips.Trunk.Address), milestoneAddr) {
+		s.milestoneTrunk++
+		if s.filterMilestone {
+			return nil, errors.New("Trunk txn is a milestone")
+		}
+
+	} else if strings.Contains(string(tips.Branch.Address), milestoneAddr) {
+		s.milestoneBranch++
+		if s.filterMilestone {
+			return nil, errors.New("Branch txn is a milestone")
+		}
 	}
 
 	if bothAreBad {
@@ -358,8 +429,8 @@ func (s *Spammer) buildTransactions(api *giota.API, trytes []giota.Transaction,
 	}
 
 	return &Transaction{
-		Trunk:        tra.TrunkTransaction,
-		Branch:       tra.BranchTransaction,
+		Trunk:        tips.TrunkHash,
+		Branch:       tips.BranchHash,
 		Transactions: trytes,
 	}, nil
 }
