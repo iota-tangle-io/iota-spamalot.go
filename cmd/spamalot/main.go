@@ -30,7 +30,9 @@ import (
 	"github.com/CWarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	flag "github.com/spf13/pflag"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -86,7 +88,9 @@ func main() {
 	}
 
 	go func() {
-		<-time.After(time.Duration(3)*time.Second)
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+		<-c
 		s.Stop()
 	}()
 
