@@ -171,14 +171,17 @@ func (s *Spammer) Start() {
 	if err != nil {
 		panic(err)
 	}
+
 	ttag, err := giota.ToTrytes(s.tag)
 	if err != nil {
 		panic(err)
 	}
+
 	tmsg, err := giota.ToTrytes(s.message)
 	if err != nil {
 		panic(err)
 	}
+
 	trs := []giota.Transfer{
 		giota.Transfer{
 			Address: recipientT,
@@ -195,6 +198,7 @@ func (s *Spammer) Start() {
 	log.Println("Using IRI nodes:", s.nodes, "and PoW:", powName)
 	txnChan := make(chan Transaction, 50)
 	s.tipsChan = make(chan Tips, 50)
+
 	for _, node := range s.nodes {
 
 		w := worker{
