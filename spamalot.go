@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cwarner818/giota"
+	"github.com/CWarner818/giota"
 )
 
 type Node struct {
