@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cwarner818/giota"
+	"github.com/CWarner818/giota"
 )
 
 type Node struct {
@@ -62,6 +62,9 @@ type Spammer struct {
 
 	tipsChan chan Tips
 	powMu    sync.Mutex
+
+	txsChan    chan Transaction
+	stopSignal chan struct{}
 
 	startTime time.Time
 
@@ -171,14 +174,17 @@ func (s *Spammer) Start() {
 	if err != nil {
 		panic(err)
 	}
+
 	ttag, err := giota.ToTrytes(s.tag)
 	if err != nil {
 		panic(err)
 	}
+
 	tmsg, err := giota.ToTrytes(s.message)
 	if err != nil {
 		panic(err)
 	}
+
 	trs := []giota.Transfer{
 		giota.Transfer{
 			Address: recipientT,
@@ -193,21 +199,28 @@ func (s *Spammer) Start() {
 
 	powName, _ := giota.GetBestPoW()
 	log.Println("Using IRI nodes:", s.nodes, "and PoW:", powName)
-	txnChan := make(chan Transaction, 50)
+	s.txsChan = make(chan Transaction, 50)
 	s.tipsChan = make(chan Tips, 50)
+	s.stopSignal = make(chan struct{}, len(s.nodes)*2+1)
+
 	for _, node := range s.nodes {
 
 		w := worker{
-			node:    node,
-			api:     giota.NewAPI(node.URL, nil),
-			spammer: s,
+			node:       node,
+			api:        giota.NewAPI(node.URL, nil),
+			spammer:    s,
+			stopSignal: s.stopSignal,
 		}
 		s.wg.Add(2)
 		go w.getTips(s.tipsChan, &s.wg)
-		go w.spam(txnChan, &s.wg)
+		go w.spam(s.txsChan, &s.wg)
 	}
 
 	s.startTime = time.Now()
+
+	// iterate randomly over available nodes and create
+	// shallow txs to send to workers for processing
+exit:
 	for {
 		node := s.nodes[rand.Intn(len(s.nodes))]
 		api := giota.NewAPI(node.URL, nil)
@@ -224,18 +237,34 @@ func (s *Spammer) Start() {
 			log.Println("Error building txn", node.URL, err)
 			continue
 		}
-		txnChan <- *txns
+
+		// send shallow tx to worker or exit if signaled (prioritize stop signal)
+		select {
+		case <-s.stopSignal:
+			break exit
+		default:
+			select {
+			case <-s.stopSignal:
+				break exit
+			case s.txsChan <- *txns:
+			}
+		}
 	}
+	log.Println("waiting for workers to terminate")
+	s.wg.Wait()
 }
 
 type worker struct {
-	node    Node
-	api     *giota.API
-	spammer *Spammer
+	node       Node
+	api        *giota.API
+	spammer    *Spammer
+	stopSignal chan struct{}
 }
 
+// retrieves tips from the given node and puts them into the tips channel
 func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 	defer wg.Done()
+exit:
 	for {
 		tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
 		if err != nil {
@@ -255,8 +284,7 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 		}
 		log.Println("Got tips from", w.node.URL)
 
-		// TODO: Need a way to exit this go routine
-		tipsChan <- Tips{
+		tip := Tips{
 			Trunk:      txns.Trytes[0],
 			TrunkHash:  tips.TrunkTransaction,
 			Branch:     txns.Trytes[1],
@@ -264,84 +292,118 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 			Duration:   tips.Duration,
 		}
 
+		// prioritize stop signal
+		select {
+		case <-w.stopSignal:
+			break exit
+		default:
+			select {
+			case <-w.stopSignal:
+				break exit
+			case tipsChan <- tip:
+			}
+		}
 	}
 }
 
+// receives prepared txs and attaches them via remote node or local PoW onto the tangle
 func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 	defer wg.Done()
+exit:
 	for {
-		txn, ok := <-txnChan
 
-		if !ok {
-			return
-		}
-		switch {
-		case w.node.AttachToTangle:
+		// quit if stop signal was received
+		select {
+		case <-w.stopSignal:
+			break exit
 
-			log.Println("attaching to tangle")
-			at := giota.AttachToTangleRequest{
-				TrunkTransaction:   txn.Trunk,
-				BranchTransaction:  txn.Branch,
-				MinWeightMagnitude: w.spammer.mwm,
-				Trytes:             txn.Transactions,
-			}
-
-			attached, err := w.api.AttachToTangle(&at)
-			if err != nil {
-
-				w.spammer.txnFail++
-				log.Println("Error attaching to tangle:", err)
-				continue
-			}
-
-			txn.Transactions = attached.Trytes
 		default:
+			select {
+			case <-w.stopSignal:
+				break exit
 
-			w.spammer.powMu.Lock()
-			log.Println("doing PoW")
-			err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
-			if err != nil {
+				// read next tx to processes
+			case txn, ok := <-txnChan:
+				if !ok {
+					break exit
+				}
 
-				w.spammer.txnFail++
-				log.Println("Error doing PoW:", err)
-				w.spammer.powMu.Unlock()
-				continue
+				switch {
+				case w.node.AttachToTangle:
+
+					log.Println("attaching to tangle")
+					at := giota.AttachToTangleRequest{
+						TrunkTransaction:   txn.Trunk,
+						BranchTransaction:  txn.Branch,
+						MinWeightMagnitude: w.spammer.mwm,
+						Trytes:             txn.Transactions,
+					}
+
+					attached, err := w.api.AttachToTangle(&at)
+					if err != nil {
+
+						w.spammer.txnFail++
+						log.Println("Error attaching to tangle:", err)
+						continue
+					}
+
+					txn.Transactions = attached.Trytes
+				default:
+
+					w.spammer.powMu.Lock()
+					log.Println("doing PoW")
+					err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
+					if err != nil {
+
+						w.spammer.txnFail++
+						log.Println("Error doing PoW:", err)
+						w.spammer.powMu.Unlock()
+						continue
+					}
+					w.spammer.powMu.Unlock()
+				}
+
+				err := w.api.BroadcastTransactions(txn.Transactions)
+				// TODO: replace this with some kind of metrics collecting goroutine
+				w.spammer.RLock()
+				defer w.spammer.RUnlock()
+				if err != nil {
+					w.spammer.txnFail++
+					log.Println(w.node, "ERROR:", err)
+					continue
+				}
+				w.spammer.txnSuccess++
+
+				if len(txn.Transactions) > 1 {
+
+					log.Println("Bundle sent to", w.node,
+						"\nhttp://thetangle.org/bundle/"+giota.Bundle(txn.Transactions).Hash())
+				} else {
+
+					log.Println("Txn sent to", w.node,
+						"\nhttp://thetangle.org/transaction/"+txn.Transactions[0].Hash())
+				}
+				dur := time.Since(w.spammer.startTime)
+				tps := float64(w.spammer.txnSuccess) / dur.Seconds()
+				log.Printf("%.2f TPS -- %.0f%% success", tps,
+					100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail))))
+
+				log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
+					dur.String(), w.spammer.txnSuccess, w.spammer.milestoneTrunk,
+					w.spammer.milestoneBranch, w.spammer.badTrunk, w.spammer.badBranch, w.spammer.badBoth)
 			}
-			w.spammer.powMu.Unlock()
 		}
-
-		err := w.api.BroadcastTransactions(txn.Transactions)
-		// TODO: replace this with some kind of metrics collecting goroutine
-		w.spammer.RLock()
-		defer w.spammer.RUnlock()
-		if err != nil {
-			w.spammer.txnFail++
-			log.Println(w.node, "ERROR:", err)
-			continue
-		}
-		w.spammer.txnSuccess++
-
-		if len(txn.Transactions) > 1 {
-
-			log.Println("Bundle sent to", w.node,
-				"\nhttp://thetangle.org/bundle/"+giota.Bundle(txn.Transactions).Hash())
-		} else {
-
-			log.Println("Txn sent to", w.node,
-				"\nhttp://thetangle.org/transaction/"+txn.Transactions[0].Hash())
-		}
-		dur := time.Since(w.spammer.startTime)
-		tps := float64(w.spammer.txnSuccess) / dur.Seconds()
-		log.Printf("%.2f TPS -- %.0f%% success", tps,
-			100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail))))
-
-		log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
-			dur.String(), w.spammer.txnSuccess, w.spammer.milestoneTrunk,
-			w.spammer.milestoneBranch, w.spammer.badTrunk, w.spammer.badBranch, w.spammer.badBoth)
 	}
 }
 
 func (s *Spammer) Stop() error {
+	// once for tip and once for spam goroutine per node
+	for i := 0; i < len(s.nodes)*2+1; i++ {
+		s.stopSignal <- struct{}{}
+	}
+	close(s.txsChan)
+	close(s.tipsChan)
+	close(s.stopSignal)
 	return nil
 }
 
@@ -358,8 +420,7 @@ type Transaction struct {
 
 const milestoneAddr = "KPWCHICGJZXKE9GSUDXZYUAPLHAKAHYHDXNPHENTERYMMBQOPSQIDENXKLKCEYCPVTZQLEEJVYJZV9BWU"
 
-func (s *Spammer) buildTransactions(trytes []giota.Transaction,
-	pow giota.PowFunc) (*Transaction, error) {
+func (s *Spammer) buildTransactions(trytes []giota.Transaction, pow giota.PowFunc) (*Transaction, error) {
 
 	/*
 		tra, err := api.GetTransactionsToApprove(s.depth)
@@ -379,7 +440,10 @@ func (s *Spammer) buildTransactions(trytes []giota.Transaction,
 
 	*/
 
-	tips := <-s.tipsChan
+	tips, ok := <-s.tipsChan
+	if !ok {
+		return nil, nil
+	}
 
 	paddedTag := padTag(s.tag)
 	tTag := string(tips.Trunk.Tag)

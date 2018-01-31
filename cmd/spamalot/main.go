@@ -27,12 +27,16 @@ package main
 import (
 	"log"
 
-	"github.com/cwarner818/giota"
+	"github.com/CWarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	flag "github.com/spf13/pflag"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 var (
+	nodeAddr *string = flag.String("node", "http://localhost:14625", "remote IRI node")
 	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
 	depth *int64 = flag.Int64("depth", giota.Depth, "whatever depth is")
 
@@ -66,7 +70,7 @@ func main() {
 
 	}
 	s, err := spamalot.New(
-		spamalot.WithNode("http://localhost:14625", false),
+		spamalot.WithNode(*nodeAddr, false),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
@@ -82,6 +86,13 @@ func main() {
 		log.Println(err)
 		return
 	}
+
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+		<-c
+		s.Stop()
+	}()
 
 	s.Start()
 }
