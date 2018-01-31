@@ -30,6 +30,7 @@ import (
 	"github.com/CWarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	flag "github.com/spf13/pflag"
+	"time"
 )
 
 var (
@@ -83,6 +84,11 @@ func main() {
 		log.Println(err)
 		return
 	}
+
+	go func() {
+		<-time.After(time.Duration(3)*time.Second)
+		s.Stop()
+	}()
 
 	s.Start()
 }
