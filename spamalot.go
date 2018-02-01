@@ -68,6 +68,7 @@ type Spammer struct {
 	timeout    time.Duration
 
 	startTime time.Time
+	running bool
 
 	txnSuccess, txnFail, badBranch, badTrunk, badBoth int
 	milestoneTrunk, milestoneBranch                   int
@@ -231,6 +232,10 @@ func (s *Spammer) Start() {
 	}
 
 	s.startTime = time.Now()
+	s.running = true
+	defer func(){
+		s.running = false
+	}()
 
 	// iterate randomly over available nodes and create
 	// shallow txs to send to workers for processing
@@ -387,10 +392,13 @@ exit:
 				log.Println("Txn sent to", w.node,
 					"\nhttp://thetangle.org/transaction/"+txn.Transactions[0].Hash())
 			}
+
+			// TPS = delta since startup / successful TXs
 			dur := time.Since(w.spammer.startTime)
 			tps := float64(w.spammer.txnSuccess) / dur.Seconds()
-			log.Printf("%.2f TPS -- %.0f%% success", tps,
-				100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail))))
+			// success rate = successful TXs / successful TXs + failed TXs
+			successRate := 100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail)))
+			log.Printf("%.2f TPS -- success rate %.0f%% ", tps, successRate)
 
 			log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
 				dur.String(), w.spammer.txnSuccess, w.spammer.milestoneTrunk,
@@ -413,6 +421,10 @@ func (s *Spammer) Stop() error {
 	// close the stop signal channel so that every select auto unwinds
 	close(s.stopSignal)
 	return nil
+}
+
+func (s *Spammer) IsRunning() bool {
+	return s.running
 }
 
 type Tips struct {
