@@ -76,11 +76,9 @@ type Spammer struct {
 	stopSignal chan struct{}
 	timeout    time.Duration
 
-	startTime time.Time
 	running   bool
 
-	txnSuccess, txnFail, badBranch, badTrunk, badBoth int
-	milestoneTrunk, milestoneBranch                   int
+	metrics *metricsrouter
 }
 
 type Option func(*Spammer) error
@@ -227,6 +225,9 @@ func (s *Spammer) Start() {
 	s.txsChan = make(chan Transaction, 50)
 	s.tipsChan = make(chan Tips, 50)
 	s.stopSignal = make(chan struct{})
+	s.metrics = newMetricsRouter()
+	go s.metrics.collect()
+	defer s.metrics.stop()
 
 	if s.timeout != 0 {
 		go func() {
@@ -247,7 +248,6 @@ func (s *Spammer) Start() {
 		go w.spam(s.txsChan, &s.wg)
 	}
 
-	s.startTime = time.Now()
 	s.running = true
 	defer func() {
 		s.running = false
@@ -261,14 +261,14 @@ exit:
 		api := giota.NewAPI(node.URL, nil)
 		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 		if err != nil {
-			s.txnFail++
+			s.metrics.addMetric(INC_FAILED_TX, nil)
 			log.Println("Error preparing transfer:", err)
 			continue
 		}
 
 		txns, err := s.buildTransactions(bdl, s.pow)
 		if err != nil {
-			s.txnFail++
+			s.metrics.addMetric(INC_FAILED_TX, nil)
 			log.Println("Error building txn", node.URL, err)
 			continue
 		}
@@ -365,8 +365,7 @@ exit:
 
 				attached, err := w.api.AttachToTangle(&at)
 				if err != nil {
-
-					w.spammer.txnFail++
+					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
 					log.Println("Error attaching to tangle:", err)
 					continue
 				}
@@ -379,8 +378,7 @@ exit:
 				log.Println("doing PoW")
 				err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
 				if err != nil {
-
-					w.spammer.txnFail++
+					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
 					log.Println("Error doing PoW:", err)
 					w.spammer.powMu.Unlock()
 					continue
@@ -393,32 +391,13 @@ exit:
 			w.spammer.RLock()
 			defer w.spammer.RUnlock()
 			if err != nil {
-				w.spammer.txnFail++
+				w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
 				log.Println(w.node, "ERROR:", err)
 				continue
 			}
-			w.spammer.txnSuccess++
 
-			if len(txn.Transactions) > 1 {
-
-				log.Println("Bundle sent to", w.node,
-					"\nhttp://thetangle.org/bundle/"+giota.Bundle(txn.Transactions).Hash())
-			} else {
-
-				log.Println("Txn sent to", w.node,
-					"\nhttp://thetangle.org/transaction/"+txn.Transactions[0].Hash())
-			}
-
-			// TPS = delta since startup / successful TXs
-			dur := time.Since(w.spammer.startTime)
-			tps := float64(w.spammer.txnSuccess) / dur.Seconds()
-			// success rate = successful TXs / successful TXs + failed TXs
-			successRate := 100 * (float64(w.spammer.txnSuccess) / (float64(w.spammer.txnSuccess) + float64(w.spammer.txnFail)))
-			log.Printf("%.2f TPS -- success rate %.0f%% ", tps, successRate)
-
-			log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
-				dur.String(), w.spammer.txnSuccess, w.spammer.milestoneTrunk,
-				w.spammer.milestoneBranch, w.spammer.badTrunk, w.spammer.badBranch, w.spammer.badBoth)
+			// this will auto print metrics to console
+			w.spammer.metrics.addMetric(INC_SUCCESSFUL_TX, txandnode{txn, w.node})
 		}
 
 	}
@@ -501,30 +480,30 @@ func (s *Spammer) buildTransactions(trytes []giota.Transaction, pow giota.PowFun
 		}
 
 		if strings.Contains(string(tips.Trunk.Address), milestoneAddr) {
-			s.milestoneTrunk++
+			s.metrics.addMetric(INC_MILESTONE_TRUNK, nil)
 			if s.filterMilestone {
 				return nil, errors.New("Trunk txn is a milestone")
 			}
 
 		} else if strings.Contains(string(tips.Branch.Address), milestoneAddr) {
-			s.milestoneBranch++
+			s.metrics.addMetric(INC_MILESTONE_BRANCH, nil)
 			if s.filterMilestone {
 				return nil, errors.New("Branch txn is a milestone")
 			}
 		}
 
 		if bothAreBad {
-			s.badBoth++
+			s.metrics.addMetric(INC_BAD_TRUNK_AND_BRANCH, nil)
 			if s.filterTrunk || s.filterBranch {
 				return nil, errors.New("Trunk and branch txn tag is ours")
 			}
 		} else if trunkIsBad {
-			s.badTrunk++
+			s.metrics.addMetric(INC_BAD_TRUNK, nil)
 			if s.filterTrunk {
 				return nil, errors.New("Trunk txn tag is ours")
 			}
 		} else if branchIsBad {
-			s.badBranch++
+			s.metrics.addMetric(INC_BAD_BRANCH, nil)
 			if s.filterBranch {
 				return nil, errors.New("Branch txn tag is ours")
 			}

@@ -86,7 +86,7 @@ func main() {
 		spamalot.FilterBranch(*filterBranch),
 		spamalot.FilterMilestone(*filterMilestone),
 		spamalot.WithPoW(pow),
-		spamalot.WithSecurityLevel(spamalot.SECURITY_LVL_MEDIUM),
+		spamalot.WithSecurityLevel(spamalot.SecurityLevel(*securityLvl)),
 		spamalot.WithTimeout(time.Duration(*timeout)*time.Second),
 	)
 
