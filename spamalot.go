@@ -219,7 +219,6 @@ func (s *Spammer) Start() {
 	}
 
 	for _, node := range s.nodes {
-
 		w := worker{
 			node:       node,
 			api:        giota.NewAPI(node.URL, nil),
@@ -259,7 +258,7 @@ exit:
 			break
 		}
 
-		// send shallow tx to worker or exit if signaled (prioritize stop signal)
+		// send shallow tx to worker or exit if signaled
 		select {
 		case <-s.stopSignal:
 			break exit
@@ -354,6 +353,7 @@ exit:
 				txn.Transactions = attached.Trytes
 			default:
 
+				// lock so only one worker is doing PoW at a time
 				w.spammer.powMu.Lock()
 				log.Println("doing PoW")
 				err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
@@ -406,7 +406,7 @@ func (s *Spammer) Stop() error {
 	s.txsChan = nil
 	s.tipsChan = nil
 
-	// once for tip and once for spam goroutine per node
+	// once for tip and once for spam goroutine per node + main loop
 	for i := 0; i < len(s.nodes)*2+1; i++ {
 		s.stopSignal <- struct{}{}
 	}

@@ -49,6 +49,9 @@ var (
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
 	//nodes *[]string = flag.StringSlice("node", []string{"http://localhost:14265"}, "remote node to connect to")
 
+	remotePoW *bool = flag.Bool("remote-pow", false,
+		"whether to let the remote IRI node do the PoW")
+
 	filterTrunk *bool = flag.Bool("trunk", false,
 		"do not send a transaction with our own transaction as a trunk")
 
@@ -72,7 +75,7 @@ func main() {
 
 	}
 	s, err := spamalot.New(
-		spamalot.WithNode(*nodeAddr, false),
+		spamalot.WithNode(*nodeAddr, *remotePoW),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
