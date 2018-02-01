@@ -33,12 +33,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 var (
 	nodeAddr *string = flag.String("node", "http://localhost:14625", "remote IRI node")
 	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
 	depth *int64 = flag.Int64("depth", giota.Depth, "whatever depth is")
+	timeout *int64 = flag.Int64("timeout", 0, "how long to let the spammer run in seconds")
 
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
@@ -80,6 +82,7 @@ func main() {
 		spamalot.FilterBranch(*filterBranch),
 		spamalot.FilterMilestone(*filterMilestone),
 		spamalot.WithPoW(pow),
+		spamalot.WithTimeout(time.Duration(*timeout)*time.Second),
 	)
 
 	if err != nil {
