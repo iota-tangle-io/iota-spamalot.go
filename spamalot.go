@@ -79,6 +79,7 @@ type Spammer struct {
 	running   bool
 
 	metrics *metricsrouter
+	metricRelay chan<- Metric
 }
 
 type Option func(*Spammer) error
@@ -186,6 +187,13 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+func WithMetricsRelay(relay chan<- Metric) Option {
+	return func(s *Spammer) error {
+		s.metricRelay = relay
+		return nil
+	}
+}
+
 func (s *Spammer) Close() error {
 	return s.Stop()
 }
@@ -226,6 +234,9 @@ func (s *Spammer) Start() {
 	s.tipsChan = make(chan Tips, 50)
 	s.stopSignal = make(chan struct{})
 	s.metrics = newMetricsRouter()
+	if s.metricRelay != nil {
+		s.metrics.addRelay(s.metricRelay)
+	}
 	go s.metrics.collect()
 	defer s.metrics.stop()
 
@@ -387,7 +398,7 @@ exit:
 			}
 
 			err := w.api.BroadcastTransactions(txn.Transactions)
-			// TODO: replace this with some kind of metrics collecting goroutine
+			// TODO: replace this with some Kind of metrics collecting goroutine
 			w.spammer.RLock()
 			defer w.spammer.RUnlock()
 			if err != nil {

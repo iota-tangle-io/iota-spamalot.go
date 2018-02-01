@@ -16,11 +16,29 @@ const (
 	INC_BAD_TRUNK_AND_BRANCH MetricType = 4
 	INC_FAILED_TX            MetricType = 5
 	INC_SUCCESSFUL_TX        MetricType = 6
+	SUMMARY                  MetricType = 7
 )
 
-type metric struct {
-	kind MetricType
-	data interface{}
+type Metric struct {
+	Kind MetricType  `json:"Kind" bson:"Kind"`
+	Data interface{} `json:"Data" bson:"Data"`
+}
+
+type Summary struct {
+	TXsSucceeded      int     `json:"txs_succeeded"`
+	TXsFailed         int     `json:"txs_failed"`
+	BadBranch         int     `json:"bad_branch"`
+	BadTrunk          int     `json:"bad_trunk"`
+	BadTrunkAndBranch int     `json:"bad_trunk_and_branch"`
+	MilestoneTrunk    int     `json:"milestone_trunk"`
+	MilestoneBranch   int     `json:"milestone_branch"`
+	TPS               float64 `json:"tps"`
+	ErrorRate         float64 `json:"error_rate"`
+}
+
+type TXData struct {
+	Hash  giota.Trytes `json:"hash"`
+	Count int          `json:"count"`
 }
 
 type txandnode struct {
@@ -30,14 +48,15 @@ type txandnode struct {
 
 func newMetricsRouter() *metricsrouter {
 	return &metricsrouter{
-		metrics:    make(chan metric),
+		metrics:    make(chan Metric),
 		stopSignal: make(chan struct{}),
 	}
 }
 
 type metricsrouter struct {
-	metrics    chan metric
+	metrics    chan Metric
 	stopSignal chan struct{}
+	relay      chan<- Metric
 
 	startTime time.Time
 
@@ -51,7 +70,11 @@ func (mr *metricsrouter) stop() {
 }
 
 func (mr *metricsrouter) addMetric(kind MetricType, data interface{}) {
-	mr.metrics <- metric{kind, data}
+	mr.metrics <- Metric{kind, data}
+}
+
+func (mr *metricsrouter) addRelay(relay chan<- Metric) {
+	mr.relay = relay
 }
 
 func (mr *metricsrouter) collect() {
@@ -62,7 +85,7 @@ exit:
 		case <-mr.stopSignal:
 			break exit
 		case metric := <-mr.metrics:
-			switch metric.kind {
+			switch metric.Kind {
 			case INC_MILESTONE_BRANCH:
 				mr.milestoneBranch++
 			case INC_MILESTONE_TRUNK:
@@ -77,7 +100,11 @@ exit:
 				mr.txsFailed++
 			case INC_SUCCESSFUL_TX:
 				mr.txsSucceeded++
-				mr.printMetrics(metric.data.(txandnode))
+				mr.printMetrics(metric.Data.(txandnode))
+			}
+
+			if mr.relay != nil && metric.Kind != INC_SUCCESSFUL_TX {
+				mr.relay <- metric
 			}
 		}
 	}
@@ -86,13 +113,15 @@ exit:
 func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	tx := txAndNode.tx
 	node := txAndNode.node
-
+	var hash giota.Trytes
 	if len(tx.Transactions) > 1 {
+		hash = giota.Bundle(tx.Transactions).Hash()
 		log.Println("Bundle sent to", node,
-			"\nhttp://thetangle.org/bundle/"+giota.Bundle(tx.Transactions).Hash())
+			"\nhttp://thetangle.org/bundle/"+hash)
 	} else {
+		hash = tx.Transactions[0].Hash()
 		log.Println("Txn sent to", node,
-			"\nhttp://thetangle.org/transaction/"+tx.Transactions[0].Hash())
+			"\nhttp://thetangle.org/transaction/"+hash)
 	}
 
 	// TPS = delta since startup / successful TXs
@@ -106,4 +135,20 @@ func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",
 		dur.String(), mr.txsSucceeded, mr.milestoneTrunk,
 		mr.milestoneBranch, mr.badTrunk, mr.badBranch, mr.badTrunkAndBranch)
+
+	// send current state of the spammer
+	if mr.relay != nil {
+		summary := Summary{
+			TXsSucceeded:   mr.txsSucceeded, TXsFailed: mr.txsFailed,
+			BadBranch:      mr.badBranch, BadTrunk: mr.badBranch, BadTrunkAndBranch: mr.badTrunkAndBranch,
+			MilestoneTrunk: mr.milestoneTrunk, MilestoneBranch: mr.milestoneBranch,
+			TPS:            tps, ErrorRate: 100 - successRate,
+		}
+		mr.relay <- Metric{Kind: SUMMARY, Data: summary}
+
+		// send tx
+		txData := TXData{Hash: hash, Count: len(tx.Transactions)}
+		mr.relay <- Metric{Kind: INC_SUCCESSFUL_TX, Data: txData}
+	}
+
 }
