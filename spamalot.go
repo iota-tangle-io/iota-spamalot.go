@@ -41,12 +41,21 @@ type Node struct {
 	AttachToTangle bool
 }
 
+type SecurityLevel byte
+
+const (
+	SECURITY_LVL_LOW    SecurityLevel = 1 // 81-trits (low)
+	SECURITY_LVL_MEDIUM SecurityLevel = 2 // 162-trits (medium)
+	SECURITY_LVL_HIGH   SecurityLevel = 3 // 243-trits (high)
+)
+
 type Spammer struct {
 	sync.RWMutex
 
 	nodes       []Node
 	mwm         int64
 	depth       int64
+	securityLvl SecurityLevel
 	destAddress string
 	tag         string
 	message     string
@@ -68,7 +77,7 @@ type Spammer struct {
 	timeout    time.Duration
 
 	startTime time.Time
-	running bool
+	running   bool
 
 	txnSuccess, txnFail, badBranch, badTrunk, badBoth int
 	milestoneTrunk, milestoneBranch                   int
@@ -165,6 +174,13 @@ func WithMWM(mwm int64) Option {
 	}
 }
 
+func WithSecurityLevel(securityLvl SecurityLevel) Option {
+	return func(s *Spammer) error {
+		s.securityLvl = securityLvl
+		return nil
+	}
+}
+
 func WithTimeout(timeout time.Duration) Option {
 	return func(s *Spammer) error {
 		s.timeout = timeout
@@ -233,7 +249,7 @@ func (s *Spammer) Start() {
 
 	s.startTime = time.Now()
 	s.running = true
-	defer func(){
+	defer func() {
 		s.running = false
 	}()
 
@@ -243,7 +259,7 @@ exit:
 	for {
 		node := s.nodes[rand.Intn(len(s.nodes))]
 		api := giota.NewAPI(node.URL, nil)
-		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", 2)
+		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 		if err != nil {
 			s.txnFail++
 			log.Println("Error preparing transfer:", err)
@@ -397,7 +413,7 @@ exit:
 			dur := time.Since(w.spammer.startTime)
 			tps := float64(w.spammer.txnSuccess) / dur.Seconds()
 			// success rate = successful TXs / successful TXs + failed TXs
-			successRate := 100*(float64(w.spammer.txnSuccess)/(float64(w.spammer.txnSuccess)+float64(w.spammer.txnFail)))
+			successRate := 100 * (float64(w.spammer.txnSuccess) / (float64(w.spammer.txnSuccess) + float64(w.spammer.txnFail)))
 			log.Printf("%.2f TPS -- success rate %.0f%% ", tps, successRate)
 
 			log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d",

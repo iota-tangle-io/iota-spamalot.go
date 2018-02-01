@@ -39,8 +39,9 @@ import (
 var (
 	nodeAddr *string = flag.String("node", "http://localhost:14625", "remote IRI node")
 	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
-	depth *int64 = flag.Int64("depth", giota.Depth, "whatever depth is")
-	timeout *int64 = flag.Int64("timeout", 0, "how long to let the spammer run in seconds")
+	depth *int64 = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
+	timeout *int64 = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
+	securityLvl *int64 = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
@@ -85,6 +86,7 @@ func main() {
 		spamalot.FilterBranch(*filterBranch),
 		spamalot.FilterMilestone(*filterMilestone),
 		spamalot.WithPoW(pow),
+		spamalot.WithSecurityLevel(spamalot.SECURITY_LVL_MEDIUM),
 		spamalot.WithTimeout(time.Duration(*timeout)*time.Second),
 	)
 
