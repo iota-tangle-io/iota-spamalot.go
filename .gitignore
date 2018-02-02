@@ -2,3 +2,4 @@
 cmd/spamalot/spamalot
 cmd/spamalot/spamalot.exe
 cmd/spamalot/spammer_linux
+iota-spamalot.go.iml
