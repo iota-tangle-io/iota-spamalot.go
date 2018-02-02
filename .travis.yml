@@ -10,7 +10,7 @@ services:
 script:
   - cd cmd/spamalot
   - go get -t ./...
-  - go build -ldflags="-s -w" -v -o spamalot # compile app
+  - GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -v -o spamalot # compile app
   - ls
 
 after_script:
