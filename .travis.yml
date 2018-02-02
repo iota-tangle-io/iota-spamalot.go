@@ -11,6 +11,7 @@ script:
   - cd cmd/spamalot
   - go get -t ./...
   - go build -ldflags="-s -w" -v -o spamalot # compile app
+  - ls
 
 after_script:
   - cd ../.. #change back to root
