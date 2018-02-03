@@ -41,6 +41,7 @@ var (
 	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
 	depth *int64 = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
 	timeout *int64 = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
+	cooldown *int64 = flag.Int64("cooldown", 0, "cooldown between spam TXs")
 	securityLvl *int64 = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
 	destAddress *string = flag.String("dest",
@@ -53,13 +54,13 @@ var (
 	remotePoW *bool = flag.Bool("remote-pow", false,
 		"whether to let the remote IRI node do the PoW")
 
-	filterTrunk *bool = flag.Bool("trunk", false,
+	filterTrunk *bool = flag.Bool("trunk", true,
 		"do not send a transaction with our own transaction as a trunk")
 
-	filterBranch *bool = flag.Bool("branch", false,
+	filterBranch *bool = flag.Bool("branch", true,
 		"do not send a transaction with our own transaction as a branch")
 
-	filterMilestone *bool = flag.Bool("milestone", false,
+	filterMilestone *bool = flag.Bool("milestone", true,
 		"do not send a transaction with a milestone as a trunk or branch")
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
@@ -88,6 +89,7 @@ func main() {
 		spamalot.WithPoW(pow),
 		spamalot.WithSecurityLevel(spamalot.SecurityLevel(*securityLvl)),
 		spamalot.WithTimeout(time.Duration(*timeout)*time.Second),
+		spamalot.WithCooldown(time.Duration(*cooldown)*time.Second),
 	)
 
 	if err != nil {

@@ -75,10 +75,11 @@ type Spammer struct {
 	txsChan    chan Transaction
 	stopSignal chan struct{}
 	timeout    time.Duration
+	cooldown   time.Duration
 
-	running   bool
+	running bool
 
-	metrics *metricsrouter
+	metrics     *metricsrouter
 	metricRelay chan<- Metric
 }
 
@@ -183,6 +184,13 @@ func WithSecurityLevel(securityLvl SecurityLevel) Option {
 func WithTimeout(timeout time.Duration) Option {
 	return func(s *Spammer) error {
 		s.timeout = timeout
+		return nil
+	}
+}
+
+func WithCooldown(cooldown time.Duration) Option {
+	return func(s *Spammer) error {
+		s.cooldown = cooldown
 		return nil
 	}
 }
@@ -409,6 +417,15 @@ exit:
 
 			// this will auto print metrics to console
 			w.spammer.metrics.addMetric(INC_SUCCESSFUL_TX, txandnode{txn, w.node})
+
+			// wait the cooldown before accepting a new TX
+			if w.spammer.cooldown > 0 {
+				select {
+				case <-w.stopSignal:
+					break exit
+				case <-time.After(w.spammer.cooldown):
+				}
+			}
 		}
 
 	}
