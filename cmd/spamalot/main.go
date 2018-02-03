@@ -37,12 +37,12 @@ import (
 )
 
 var (
-	nodeAddr *string = flag.String("node", "http://localhost:14625", "remote IRI node")
-	mwm   *int64 = flag.Int64("mwm", 14, "minimum weight magnitude")
-	depth *int64 = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
-	timeout *int64 = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
-	cooldown *int64 = flag.Int64("cooldown", 0, "cooldown between spam TXs")
-	securityLvl *int64 = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
+	nodeAddr    *string = flag.String("node", "http://localhost:14625", "remote IRI node")
+	mwm         *int64  = flag.Int64("mwm", 14, "minimum weight magnitude")
+	depth       *int64  = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
+	timeout     *int64  = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
+	cooldown    *int64  = flag.Int64("cooldown", 0, "cooldown between spam TXs")
+	securityLvl *int64  = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
@@ -62,8 +62,12 @@ var (
 
 	filterMilestone *bool = flag.Bool("milestone", true,
 		"do not send a transaction with a milestone as a trunk or branch")
+
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
+
+	verboseLogging *bool = flag.Bool("verbose", false,
+		"if set, log various information to console about the spammer's state")
 )
 
 func main() {
@@ -90,6 +94,7 @@ func main() {
 		spamalot.WithSecurityLevel(spamalot.SecurityLevel(*securityLvl)),
 		spamalot.WithTimeout(time.Duration(*timeout)*time.Second),
 		spamalot.WithCooldown(time.Duration(*cooldown)*time.Second),
+		spamalot.WithVerboseLogging(*verboseLogging),
 	)
 
 	if err != nil {

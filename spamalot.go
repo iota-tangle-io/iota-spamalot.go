@@ -77,7 +77,8 @@ type Spammer struct {
 	timeout    time.Duration
 	cooldown   time.Duration
 
-	running bool
+	verboseLogging bool
+	running        bool
 
 	metrics     *metricsrouter
 	metricRelay chan<- Metric
@@ -160,6 +161,13 @@ func FilterMilestone(filter bool) Option {
 	}
 }
 
+func WithVerboseLogging(verboseLogging bool) Option {
+	return func(s *Spammer) error {
+		s.verboseLogging = verboseLogging
+		return nil
+	}
+}
+
 func WithDepth(depth int64) Option {
 	return func(s *Spammer) error {
 		s.depth = depth
@@ -204,6 +212,12 @@ func WithMetricsRelay(relay chan<- Metric) Option {
 
 func (s *Spammer) Close() error {
 	return s.Stop()
+}
+
+func (s *Spammer) logIfVerbose(str ...interface{}) {
+	if s.verboseLogging {
+		log.Println(str...)
+	}
 }
 
 func (s *Spammer) Start() {
@@ -281,14 +295,14 @@ exit:
 		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 		if err != nil {
 			s.metrics.addMetric(INC_FAILED_TX, nil)
-			log.Println("Error preparing transfer:", err)
+			s.logIfVerbose("Error preparing transfer:", err)
 			continue
 		}
 
 		txns, err := s.buildTransactions(bdl, s.pow)
 		if err != nil {
 			s.metrics.addMetric(INC_FAILED_TX, nil)
-			log.Println("Error building txn", node.URL, err)
+			s.logIfVerbose("Error building txn", node.URL, err)
 			continue
 		}
 
@@ -305,7 +319,7 @@ exit:
 		case s.txsChan <- *txns:
 		}
 	}
-	log.Println("Waiting for workers to terminate")
+	log.Println("Waiting for workers to terminate...")
 	s.wg.Wait()
 }
 
@@ -337,7 +351,8 @@ exit:
 			log.Println("GetTrytes error:", err)
 			continue
 		}
-		log.Println("Got tips from", w.node.URL)
+
+		w.spammer.logIfVerbose("Got tips from", w.node.URL)
 
 		tip := Tips{
 			Trunk:      txns.Trytes[0],
@@ -374,7 +389,8 @@ exit:
 			switch {
 			case w.node.AttachToTangle:
 
-				log.Println("attaching to tangle")
+				w.spammer.logIfVerbose("attaching to tangle")
+
 				at := giota.AttachToTangleRequest{
 					TrunkTransaction:   txn.Trunk,
 					BranchTransaction:  txn.Branch,
@@ -394,7 +410,8 @@ exit:
 
 				// lock so only one worker is doing PoW at a time
 				w.spammer.powMu.Lock()
-				log.Println("doing PoW")
+				w.spammer.logIfVerbose("doing PoW")
+
 				err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
 				if err != nil {
 					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
