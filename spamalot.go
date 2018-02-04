@@ -379,17 +379,15 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 // receives prepared txs and attaches them via remote node or local PoW onto the tangle
 func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 	defer wg.Done()
-exit:
 	for {
 
 		select {
 		case <-w.stopSignal:
-			break exit
-
+			return
 			// read next tx to processes
 		case txn, ok := <-txnChan:
 			if !ok {
-				break exit
+				return
 			}
 
 			switch {
@@ -445,7 +443,7 @@ exit:
 			if w.spammer.cooldown > 0 {
 				select {
 				case <-w.stopSignal:
-					break exit
+					return
 				case <-time.After(w.spammer.cooldown):
 				}
 			}
