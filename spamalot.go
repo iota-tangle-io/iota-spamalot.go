@@ -226,6 +226,7 @@ func (s *Spammer) logIfVerbose(str ...interface{}) {
 }
 
 func (s *Spammer) Start() {
+	log.Println("IOTΛ Spamalot starting")
 	seed := giota.NewSeed()
 
 	recipientT, err := giota.ToAddress(s.destAddress)
@@ -253,17 +254,18 @@ func (s *Spammer) Start() {
 	}
 
 	var bdl giota.Bundle
-	log.Println("IOTΛ Spamalot starting")
 
-	powName, _ := giota.GetBestPoW()
-	log.Println("Using IRI nodes:", s.nodes, "and PoW:", powName)
+	log.Println("Using IRI nodes:", s.nodes)
+
 	s.txsChan = make(chan Transaction, 50)
 	s.tipsChan = make(chan Tips, 50)
 	s.stopSignal = make(chan struct{})
 	s.metrics = newMetricsRouter()
+
 	if s.metricRelay != nil {
 		s.metrics.addRelay(s.metricRelay)
 	}
+
 	go s.metrics.collect()
 	defer s.metrics.stop()
 
@@ -293,35 +295,39 @@ func (s *Spammer) Start() {
 
 	// iterate randomly over available nodes and create
 	// shallow txs to send to workers for processing
-exit:
 	for {
-		node := s.nodes[rand.Intn(len(s.nodes))]
-		api := giota.NewAPI(node.URL, nil)
-		bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
-		if err != nil {
-			s.metrics.addMetric(INC_FAILED_TX, nil)
-			s.logIfVerbose("Error preparing transfer:", err)
-			continue
-		}
-
-		txns, err := s.buildTransactions(bdl, s.pow)
-		if err != nil {
-			s.metrics.addMetric(INC_FAILED_TX, nil)
-			s.logIfVerbose("Error building txn", node.URL, err)
-			continue
-		}
-
-		// if the built transaction is nil here, the buildTransactions() function
-		// was instructed to stop by a stop signal
-		if txns == nil {
-			break
-		}
-
-		// send shallow tx to worker or exit if signaled
 		select {
 		case <-s.stopSignal:
-			break exit
-		case s.txsChan <- *txns:
+			return
+		default:
+			node := s.nodes[rand.Intn(len(s.nodes))]
+			api := giota.NewAPI(node.URL, nil)
+			bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
+			if err != nil {
+				s.metrics.addMetric(INC_FAILED_TX, nil)
+				s.logIfVerbose("Error preparing transfer:", err)
+				continue
+			}
+
+			txns, err := s.buildTransactions(bdl, s.pow)
+			if err != nil {
+				s.metrics.addMetric(INC_FAILED_TX, nil)
+				s.logIfVerbose("Error building txn", node.URL, err)
+				continue
+			}
+
+			// if the built transaction is nil here, the buildTransactions() function
+			// was instructed to stop by a stop signal
+			if txns == nil {
+				break
+			}
+
+			// send shallow tx to worker or exit if signaled
+			select {
+			case <-s.stopSignal:
+				return
+			case s.txsChan <- *txns:
+			}
 		}
 	}
 	log.Println("Waiting for workers to terminate...")
@@ -462,6 +468,7 @@ func (s *Spammer) Stop() error {
 	for i := 0; i < len(s.nodes)*2+1; i++ {
 		s.stopSignal <- struct{}{}
 	}
+
 	// close the stop signal channel so that every select auto unwinds
 	close(s.stopSignal)
 	return nil

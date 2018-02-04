@@ -33,6 +33,7 @@ import (
 
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -42,13 +43,13 @@ import (
 )
 
 var (
-	nodeAddr    *string = flag.String("node", "http://localhost:14625", "remote IRI node")
-	nodeList    *string = flag.String("nodelist", "", "URL to fetch a list of IRI nodes from")
-	mwm         *int64  = flag.Int64("mwm", 14, "minimum weight magnitude")
-	depth       *int64  = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
-	timeout     *int64  = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
-	cooldown    *int64  = flag.Int64("cooldown", 0, "cooldown between spam TXs")
-	securityLvl *int64  = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
+	useNodes       *[]string = flag.StringSlice("node", []string{"http://localhost:14625"}, "remote IRI node")
+	remoteNodeList *string   = flag.String("nodelist", "", "URL to fetch a list of IRI nodes from")
+	mwm            *int64    = flag.Int64("mwm", 14, "minimum weight magnitude")
+	depth          *int64    = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
+	timeout        *int64    = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
+	cooldown       *int64    = flag.Int64("cooldown", 0, "cooldown between spam TXs")
+	securityLvl    *int64    = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
@@ -89,6 +90,13 @@ type Node struct {
 	Neighbors                 int
 }
 
+func checkNode(url string) (*spamalot.Node, error) {
+	return &spamalot.Node{
+		URL:            url,
+		AttachToTangle: canAttach(url),
+	}, nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -97,38 +105,69 @@ func main() {
 	if !*remotePow {
 		powName, pow = giota.GetBestPoW()
 		log.Println("Using PoW:", powName)
-
 	}
 
-	// For use with a JSON list of nodes
-	var nodes []spamalot.Node
-	if nodeList != nil && *nodeList != "" {
+	nodes := make(map[string]bool)
+
+	if remoteNodeList != nil && *remoteNodeList != "" {
 		var hosts []Node
-		err := getJson(*nodeList, &hosts)
+		err := getJson(*remoteNodeList, &hosts)
 		if err != nil {
 			log.Println("Unable to fetch host list:", err)
 			return
 		}
-
-		log.Println(len(hosts), "hosts loaded from", *nodeList)
-
+		//log.Println(len(hosts), "hosts loaded from", *remoteNodeList)
 		for _, host := range hosts {
-
 			url := "http://" + host.Hostname + ":" + strconv.Itoa(host.Port)
-			canAttach := canAttach(url)
-			n := spamalot.Node{
-				URL:            url,
-				AttachToTangle: canAttach,
-			}
-			nodes = append(nodes, n)
+			nodes[url] = false
 		}
-
-		log.Println("attachToTangle host count:", counter)
-
 	}
+
+	if len(*useNodes) > 0 {
+		for _, host := range *useNodes {
+			nodes[host] = false
+		}
+	}
+
+	nodeChan := make(chan spamalot.Node, len(nodes))
+	var wg sync.WaitGroup
+	for url, _ := range nodes {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			n, err := checkNode(url)
+			if err != nil {
+				log.Println("Error checking node:", n, err)
+				return
+			}
+			nodeChan <- *n
+		}(url)
+	}
+
+	log.Println("Checking", len(nodes), "nodes for AttachToTangle support")
+	wg.Wait()
+
+	// I have NO idea why I need to do this to read all the values from the
+	// channel, but if we dont loop for len()+1 we miss the last value.
+	for i := 0; i <= len(nodeChan)+1; i++ {
+		n := <-nodeChan
+		nodes[n.URL] = n.AttachToTangle
+	}
+
+	var nodelist []spamalot.Node
+	var counter int
+	for url, attachToTangle := range nodes {
+		if attachToTangle {
+			counter++
+		}
+		nodelist = append(nodelist, spamalot.Node{URL: url, AttachToTangle: attachToTangle})
+	}
+
+	log.Println(len(nodelist), "nodes responded")
+	log.Println(counter, "nodes support AttachToTangle")
+
 	s, err := spamalot.New(
-		spamalot.WithNode(*nodeAddr, *remotePoW),
-		spamalot.WithNodes(nodes),
+		spamalot.WithNodes(nodelist),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
@@ -159,8 +198,6 @@ func main() {
 	s.Start()
 }
 
-var counter int
-
 // Send a garbage attachToTangle to the node and check the error to see if it
 // supports it
 func canAttach(host string) bool {
@@ -173,7 +210,9 @@ func canAttach(host string) bool {
 	req.Header.Set("X-IOTA-API-Version", "1")
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
 	resp, err := client.Do(req)
 
 	if err != nil {
@@ -187,10 +226,10 @@ func canAttach(host string) bool {
 		return false
 	}
 
-	if errorResponse.Error == "" || errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
-		log.Println(errorResponse.Error)
-		counter++
+	if errorResponse.Error == "Invalid trytes input" {
 		return true
+	} else if errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
+		log.Println(host, errorResponse.Error)
 	}
 	return false
 }
