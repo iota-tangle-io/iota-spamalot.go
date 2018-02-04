@@ -142,7 +142,7 @@ func main() {
 			defer wg.Done()
 			n, err := checkNode(url)
 			if *verboseLogging {
-				pretty.Print(n,"\n")
+				pretty.Print(n, "\n")
 			}
 			if err != nil {
 				if *verboseLogging {
@@ -155,20 +155,17 @@ func main() {
 	}
 	wg.Wait()
 
-	// This misses the last node on the channel for some reason...
-	for i := 0; i <= len(nodeChan); i++ {
+	for i := 0; i < len(nodes); i++ {
 		n := <-nodeChan
 		nodes[n.URL] = n.AttachToTangle
 	}
 
 	var nodelist []spamalot.Node
-	var counter int
 	for url, attachToTangle := range nodes {
 		if *filterNonRemotePoWNodes && !attachToTangle {
 			continue
 		}
 		if attachToTangle {
-			counter++
 		}
 		nodelist = append(nodelist, spamalot.Node{URL: url, AttachToTangle: attachToTangle})
 	}
@@ -178,6 +175,8 @@ func main() {
 	if *filterNonRemotePoWNodes {
 		log.Println("will only use nodes which support remote PoW")
 	}
+
+	return
 
 	s, err := spamalot.New(
 		spamalot.WithNodes(nodelist),
@@ -213,6 +212,8 @@ func main() {
 
 // Send a garbage attachToTangle to the node and check the error to see if it
 // supports it
+var counter int
+
 func canAttach(host string) bool {
 	var errorResponse struct {
 		Error string
@@ -242,6 +243,7 @@ func canAttach(host string) bool {
 	}
 
 	if errorResponse.Error == "Invalid trytes input" {
+		counter++
 		return true
 	} else if errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
 		log.Println(host, errorResponse.Error)
