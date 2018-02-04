@@ -70,6 +70,9 @@ var (
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
 
+	filterNonRemotePoWNodes *bool = flag.Bool("only-with-pow", false,
+		"if set, filter out nodes from --nodelist which don't support remote PoW")
+
 	verboseLogging *bool = flag.Bool("verbose", false,
 		"if set, log various information to console about the spammer's state")
 )
@@ -107,6 +110,7 @@ func main() {
 
 	nodes := make(map[string]bool)
 
+	// check whether a remote node list was provided
 	if remoteNodeList != nil && *remoteNodeList != "" {
 		var hosts []Node
 		err := getJson(*remoteNodeList, &hosts)
@@ -121,12 +125,15 @@ func main() {
 		}
 	}
 
+	// add manually specified nodes to the map
 	if len(*useNodes) > 0 {
 		for _, host := range *useNodes {
 			nodes[host] = false
 		}
 	}
 
+	// create in-memory nodes and check whether each node supports remote PoW
+	log.Println("Checking", len(nodes), "nodes for AttachToTangle support")
 	nodeChan := make(chan spamalot.Node, len(nodes))
 	var wg sync.WaitGroup
 	for url, _ := range nodes {
@@ -134,16 +141,18 @@ func main() {
 		go func(url string) {
 			defer wg.Done()
 			n, err := checkNode(url)
-			pretty.Print(n)
+			if *verboseLogging {
+				pretty.Print(n,"\n")
+			}
 			if err != nil {
-				log.Println("Error checking node:", n, err)
+				if *verboseLogging {
+					log.Println("Error checking node:", n, err)
+				}
 				return
 			}
 			nodeChan <- *n
 		}(url)
 	}
-
-	log.Println("Checking", len(nodes), "nodes for AttachToTangle support")
 	wg.Wait()
 
 	// This misses the last node on the channel for some reason...
@@ -155,6 +164,9 @@ func main() {
 	var nodelist []spamalot.Node
 	var counter int
 	for url, attachToTangle := range nodes {
+		if *filterNonRemotePoWNodes && !attachToTangle {
+			continue
+		}
 		if attachToTangle {
 			counter++
 		}
@@ -163,6 +175,9 @@ func main() {
 
 	log.Println(len(nodelist), "nodes responded")
 	log.Println(counter, "nodes support AttachToTangle")
+	if *filterNonRemotePoWNodes {
+		log.Println("will only use nodes which support remote PoW")
+	}
 
 	s, err := spamalot.New(
 		spamalot.WithNodes(nodelist),
@@ -214,7 +229,9 @@ func canAttach(host string) bool {
 	resp, err := client.Do(req)
 
 	if err != nil {
-		log.Println("Error checking if host", host, "supports attachToTangle:", err)
+		if *verboseLogging {
+			log.Println("Error checking if host", host, "supports attachToTangle:", err)
+		}
 		return false
 	}
 	defer resp.Body.Close()
