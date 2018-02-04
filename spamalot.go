@@ -80,6 +80,7 @@ type Spammer struct {
 	verboseLogging bool
 	running        bool
 
+	strategy    string
 	metrics     *metricsrouter
 	metricRelay chan<- Metric
 }
@@ -108,6 +109,12 @@ func (s *Spammer) UpdateSettings(options ...Option) error {
 	return nil
 }
 
+func WithStrategy(strategy string) Option {
+	return func(s *Spammer) error {
+		s.strategy = strategy
+		return nil
+	}
+}
 func WithNodes(nodes []Node) Option {
 	return func(s *Spammer) error {
 		s.nodes = append(s.nodes, nodes...)
@@ -283,8 +290,16 @@ func (s *Spammer) Start() {
 			spammer:    s,
 			stopSignal: s.stopSignal,
 		}
+		switch strings.ToLower(s.strategy) {
+		case "non zero promote":
+			go w.getNonZeroTips(s.tipsChan, &s.wg)
+		case "":
+			go w.getTxnsToApprove(s.tipsChan, &s.wg)
+		default:
+			log.Println("Unknown strategy `" + s.strategy + "'")
+			return
+		}
 		s.wg.Add(2)
-		go w.getTips(s.tipsChan, &s.wg)
 		go w.spam(s.txsChan, &s.wg)
 	}
 
@@ -342,7 +357,79 @@ type worker struct {
 }
 
 // retrieves tips from the given node and puts them into the tips channel
-func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
+func (w worker) getNonZeroTips(tipsChan chan Tips, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
+		select {
+		case <-w.stopSignal:
+			return
+		default:
+			tips, err := w.api.GetTips()
+			if err != nil {
+				w.spammer.logIfVerbose("GetTips error", err)
+				continue
+			}
+
+			// Loop through returned tips and get a random txn
+			// if txn value is zero, get a new one
+			var txn *giota.Transaction
+			var txnHash giota.Trytes
+			for {
+				if len(tips.Hashes) == 0 {
+					break
+				}
+
+				r := rand.Intn(len(tips.Hashes))
+				txns, err := w.api.GetTrytes([]giota.Trytes{tips.Hashes[r]})
+				if err != nil {
+					w.spammer.logIfVerbose("GetTrytes error:", err)
+					continue
+				}
+
+				txn = &txns.Trytes[0]
+				if txn.Value == 0 {
+					tips.Hashes = append(tips.Hashes[:r],
+						tips.Hashes[r+1:]...)
+					continue
+				}
+				txnHash = tips.Hashes[r]
+				break
+			}
+
+			if txn == nil {
+				continue
+			}
+
+			w.spammer.logIfVerbose("Got tips from", w.node.URL)
+
+			nodeInfo, err := w.api.GetNodeInfo()
+			if err != nil {
+				w.spammer.logIfVerbose("GetNodeInfo error:", err)
+				continue
+			}
+			txns, err := w.api.GetTrytes([]giota.Trytes{nodeInfo.LatestMilestone})
+			if err != nil {
+				w.spammer.logIfVerbose("GetTrytes error:", err)
+				continue
+			}
+
+			milestone := txns.Trytes[0]
+
+			tip := Tips{
+				Trunk:      milestone,
+				TrunkHash:  nodeInfo.LatestMilestone,
+				Branch:     *txn,
+				BranchHash: txnHash,
+			}
+
+			tipsChan <- tip
+
+		}
+	}
+}
+
+// retrieves tips from the given node and puts them into the tips channel
+func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
 		select {
@@ -373,7 +460,6 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 				TrunkHash:  tips.TrunkTransaction,
 				Branch:     txns.Trytes[1],
 				BranchHash: tips.BranchTransaction,
-				Duration:   tips.Duration,
 			}
 
 			tipsChan <- tip
@@ -483,7 +569,6 @@ func (s *Spammer) IsRunning() bool {
 type Tips struct {
 	Trunk, Branch         giota.Transaction
 	TrunkHash, BranchHash giota.Trytes
-	Duration              int64
 }
 
 type Transaction struct {
