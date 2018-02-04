@@ -70,6 +70,9 @@ var (
 	remotePow *bool = flag.Bool("pow", false,
 		"if set, do PoW calculation on remote node via API")
 
+	localPoW *bool = flag.Bool("local-pow", true,
+		"if set, do PoW calculation locally")
+
 	filterNonRemotePoWNodes *bool = flag.Bool("only-with-pow", false,
 		"if set, filter out nodes from --nodelist which don't support remote PoW")
 
@@ -194,6 +197,7 @@ func main() {
 		spamalot.WithCooldown(time.Duration(*cooldown)*time.Second),
 		spamalot.WithVerboseLogging(*verboseLogging),
 		spamalot.WithStrategy(*strategy),
+		spamalot.WithLocalPoW(*localPoW),
 	)
 
 	if err != nil {

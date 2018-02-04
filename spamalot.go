@@ -66,6 +66,8 @@ type Spammer struct {
 
 	remotePoW bool
 
+	localPoW bool
+
 	pow giota.PowFunc
 	wg  sync.WaitGroup
 
@@ -180,6 +182,12 @@ func WithVerboseLogging(verboseLogging bool) Option {
 	}
 }
 
+func WithLocalPoW(localPoW bool) Option {
+	return func(s *Spammer) error {
+		s.localPoW = localPoW
+		return nil
+	}
+}
 func WithDepth(depth int64) Option {
 	return func(s *Spammer) error {
 		s.depth = depth
@@ -483,7 +491,7 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 			}
 
 			switch {
-			case w.node.AttachToTangle:
+			case !w.spammer.localPoW && w.node.AttachToTangle:
 
 				w.spammer.logIfVerbose("attaching to tangle")
 
