@@ -338,39 +338,40 @@ type worker struct {
 // retrieves tips from the given node and puts them into the tips channel
 func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 	defer wg.Done()
-exit:
 	for {
-		tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
-		if err != nil {
-			log.Println("GetTransactionsToApprove error", err)
-			continue
-		}
-
-		txns, err := w.api.GetTrytes([]giota.Trytes{
-			tips.TrunkTransaction,
-			tips.BranchTransaction,
-		})
-
-		if err != nil {
-			//return nil, err
-			log.Println("GetTrytes error:", err)
-			continue
-		}
-
-		w.spammer.logIfVerbose("Got tips from", w.node.URL)
-
-		tip := Tips{
-			Trunk:      txns.Trytes[0],
-			TrunkHash:  tips.TrunkTransaction,
-			Branch:     txns.Trytes[1],
-			BranchHash: tips.BranchTransaction,
-			Duration:   tips.Duration,
-		}
-
 		select {
 		case <-w.stopSignal:
-			break exit
-		case tipsChan <- tip:
+			return
+		default:
+			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
+			if err != nil {
+				log.Println("GetTransactionsToApprove error", err)
+				continue
+			}
+
+			txns, err := w.api.GetTrytes([]giota.Trytes{
+				tips.TrunkTransaction,
+				tips.BranchTransaction,
+			})
+
+			if err != nil {
+				//return nil, err
+				log.Println("GetTrytes error:", err)
+				continue
+			}
+
+			w.spammer.logIfVerbose("Got tips from", w.node.URL)
+
+			tip := Tips{
+				Trunk:      txns.Trytes[0],
+				TrunkHash:  tips.TrunkTransaction,
+				Branch:     txns.Trytes[1],
+				BranchHash: tips.BranchTransaction,
+				Duration:   tips.Duration,
+			}
+
+			tipsChan <- tip
+
 		}
 	}
 }
