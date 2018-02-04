@@ -290,6 +290,8 @@ func (s *Spammer) Start() {
 
 	s.running = true
 	defer func() {
+		log.Println("Waiting for workers to terminate...")
+		s.wg.Wait()
 		s.running = false
 	}()
 
@@ -319,7 +321,7 @@ func (s *Spammer) Start() {
 			// if the built transaction is nil here, the buildTransactions() function
 			// was instructed to stop by a stop signal
 			if txns == nil {
-				break
+				return
 			}
 
 			// send shallow tx to worker or exit if signaled
@@ -330,8 +332,6 @@ func (s *Spammer) Start() {
 			}
 		}
 	}
-	log.Println("Waiting for workers to terminate...")
-	s.wg.Wait()
 }
 
 type worker struct {
