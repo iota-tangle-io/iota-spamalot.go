@@ -25,19 +25,25 @@ SOFTWARE.
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"log"
+	"net/http"
+	"strconv"
 
-	"github.com/CWarner818/giota"
-	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
-	flag "github.com/spf13/pflag"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/CWarner818/giota"
+	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
+	flag "github.com/spf13/pflag"
 )
 
 var (
 	nodeAddr    *string = flag.String("node", "http://localhost:14625", "remote IRI node")
+	nodeList    *string = flag.String("nodelist", "", "URL to fetch a list of IRI nodes from")
 	mwm         *int64  = flag.Int64("mwm", 14, "minimum weight magnitude")
 	depth       *int64  = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
 	timeout     *int64  = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
@@ -49,7 +55,6 @@ var (
 
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
-	//nodes *[]string = flag.StringSlice("node", []string{"http://localhost:14265"}, "remote node to connect to")
 
 	remotePoW *bool = flag.Bool("remote-pow", false,
 		"whether to let the remote IRI node do the PoW")
@@ -70,6 +75,20 @@ var (
 		"if set, log various information to console about the spammer's state")
 )
 
+type Node struct {
+	Hostname                  string
+	Port                      int
+	LatestMilestoneIndex      int
+	LatestSolidSubtangleIndex int
+	Load                      int
+	Ping                      int
+	FreeMemory                int
+	MaxMemory                 int
+	Processors                int
+	Version                   string
+	Neighbors                 int
+}
+
 func main() {
 	flag.Parse()
 
@@ -80,8 +99,36 @@ func main() {
 		log.Println("Using PoW:", powName)
 
 	}
+
+	// For use with a JSON list of nodes
+	var nodes []spamalot.Node
+	if nodeList != nil && *nodeList != "" {
+		var hosts []Node
+		err := getJson(*nodeList, &hosts)
+		if err != nil {
+			log.Println("Unable to fetch host list:", err)
+			return
+		}
+
+		log.Println(len(hosts), "hosts loaded from", *nodeList)
+
+		for _, host := range hosts {
+
+			url := "http://" + host.Hostname + ":" + strconv.Itoa(host.Port)
+			canAttach := canAttach(url)
+			n := spamalot.Node{
+				URL:            url,
+				AttachToTangle: canAttach,
+			}
+			nodes = append(nodes, n)
+		}
+
+		log.Println("attachToTangle host count:", counter)
+
+	}
 	s, err := spamalot.New(
 		spamalot.WithNode(*nodeAddr, *remotePoW),
+		spamalot.WithNodes(nodes),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
@@ -110,4 +157,51 @@ func main() {
 	}()
 
 	s.Start()
+}
+
+var counter int
+
+// Send a garbage attachToTangle to the node and check the error to see if it
+// supports it
+func canAttach(host string) bool {
+	var errorResponse struct {
+		Error string
+	}
+
+	request := []byte(`{"command": "attachToTangle", "trunkTransaction": "JVMTDGDPDFYHMZPMWEKKANBQSLSDTIIHAYQUMZOKHXXXGJHJDQPOMDOMNRDKYCZRUFZROZDADTHZC9999", "branchTransaction": "P9KFSJVGSPLXAEBJSHWFZLGP9GGJTIO9YITDEHATDTGAFLPLBZ9FOFWWTKMAZXZHFGQHUOXLXUALY9999", "minWeightMagnitude": 18, "trytes": ["TRYTVALUEHERE"]}`)
+	req, err := http.NewRequest("POST", host, bytes.NewBuffer(request))
+	req.Header.Set("X-IOTA-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		log.Println("Error checking if host", host, "supports attachToTangle:", err)
+		return false
+	}
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
+	if err != nil {
+		log.Println("Error unmarshalling json:", err)
+		return false
+	}
+
+	if errorResponse.Error == "" || errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
+		log.Println(errorResponse.Error)
+		counter++
+		return true
+	}
+	return false
+}
+
+// fetch JSON from the URL and unmarshal it in to the target
+func getJson(url string, target interface{}) error {
+	r, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+
+	return json.NewDecoder(r.Body).Decode(target)
 }
