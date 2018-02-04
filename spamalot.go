@@ -351,7 +351,7 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 		default:
 			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
 			if err != nil {
-				log.Println("GetTransactionsToApprove error", err)
+				w.spammer.logIfVerbose("GetTransactionsToApprove error", err)
 				continue
 			}
 
@@ -362,7 +362,7 @@ func (w worker) getTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 
 			if err != nil {
 				//return nil, err
-				log.Println("GetTrytes error:", err)
+				w.spammer.logIfVerbose("GetTrytes error:", err)
 				continue
 			}
 
