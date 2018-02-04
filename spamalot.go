@@ -427,7 +427,7 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 			}
 
 			err := w.api.BroadcastTransactions(txn.Transactions)
-			// TODO: replace this with some Kind of metrics collecting goroutine
+
 			w.spammer.RLock()
 			defer w.spammer.RUnlock()
 			if err != nil {
@@ -468,6 +468,8 @@ func (s *Spammer) Stop() error {
 }
 
 func (s *Spammer) IsRunning() bool {
+	s.RLock()
+	defer s.RUnlock()
 	return s.running
 }
 
