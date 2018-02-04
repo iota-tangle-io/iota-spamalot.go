@@ -39,6 +39,7 @@ import (
 
 	"github.com/CWarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
+	"github.com/kr/pretty"
 	flag "github.com/spf13/pflag"
 )
 
@@ -56,9 +57,6 @@ var (
 
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
-
-	remotePoW *bool = flag.Bool("remote-pow", false,
-		"whether to let the remote IRI node do the PoW")
 
 	filterTrunk *bool = flag.Bool("trunk", true,
 		"do not send a transaction with our own transaction as a trunk")
@@ -136,6 +134,7 @@ func main() {
 		go func(url string) {
 			defer wg.Done()
 			n, err := checkNode(url)
+			pretty.Print(n)
 			if err != nil {
 				log.Println("Error checking node:", n, err)
 				return
@@ -147,9 +146,8 @@ func main() {
 	log.Println("Checking", len(nodes), "nodes for AttachToTangle support")
 	wg.Wait()
 
-	// I have NO idea why I need to do this to read all the values from the
-	// channel, but if we dont loop for len()+1 we miss the last value.
-	for i := 0; i <= len(nodeChan)+1; i++ {
+	// This misses the last node on the channel for some reason...
+	for i := 0; i <= len(nodeChan); i++ {
 		n := <-nodeChan
 		nodes[n.URL] = n.AttachToTangle
 	}
