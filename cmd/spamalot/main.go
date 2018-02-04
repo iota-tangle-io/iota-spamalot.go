@@ -92,9 +92,14 @@ type Node struct {
 }
 
 func checkNode(url string) (*spamalot.Node, error) {
+	canAttach, err := canAttach(url)
+	if err != nil {
+		return nil, err
+	}
+
 	return &spamalot.Node{
 		URL:            url,
-		AttachToTangle: canAttach(url),
+		AttachToTangle: canAttach,
 	}, nil
 }
 
@@ -142,7 +147,7 @@ func main() {
 			defer wg.Done()
 			n, err := checkNode(url)
 			if *verboseLogging {
-				pretty.Print(n,"\n")
+				pretty.Print(n, "\n")
 			}
 			if err != nil {
 				if *verboseLogging {
@@ -154,23 +159,15 @@ func main() {
 		}(url)
 	}
 	wg.Wait()
-
-	// This misses the last node on the channel for some reason...
-	for i := 0; i <= len(nodeChan); i++ {
-		n := <-nodeChan
-		nodes[n.URL] = n.AttachToTangle
-	}
-
 	var nodelist []spamalot.Node
-	var counter int
-	for url, attachToTangle := range nodes {
-		if *filterNonRemotePoWNodes && !attachToTangle {
+	length := len(nodeChan)
+	for i := 0; i < length; i++ {
+		n := <-nodeChan
+		if *filterNonRemotePoWNodes && !n.AttachToTangle {
 			continue
 		}
-		if attachToTangle {
-			counter++
-		}
-		nodelist = append(nodelist, spamalot.Node{URL: url, AttachToTangle: attachToTangle})
+		nodelist = append(nodelist, n)
+		//nodes[n.URL] = n.AttachToTangle
 	}
 
 	log.Println(len(nodelist), "nodes responded")
@@ -213,7 +210,9 @@ func main() {
 
 // Send a garbage attachToTangle to the node and check the error to see if it
 // supports it
-func canAttach(host string) bool {
+var counter int
+
+func canAttach(host string) (bool, error) {
 	var errorResponse struct {
 		Error string
 	}
@@ -232,21 +231,22 @@ func canAttach(host string) bool {
 		if *verboseLogging {
 			log.Println("Error checking if host", host, "supports attachToTangle:", err)
 		}
-		return false
+		return false, err
 	}
 	defer resp.Body.Close()
 	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
 	if err != nil {
 		log.Println("Error unmarshalling json:", err)
-		return false
+		return false, err
 	}
 
 	if errorResponse.Error == "Invalid trytes input" {
-		return true
+		counter++
+		return true, nil
 	} else if errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
 		log.Println(host, errorResponse.Error)
 	}
-	return false
+	return false, nil
 }
 
 // fetch JSON from the URL and unmarshal it in to the target
