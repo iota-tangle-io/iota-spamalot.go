@@ -103,11 +103,10 @@ func (mr *metricsrouter) addRelay(relay chan<- Metric) {
 
 func (mr *metricsrouter) collect() {
 	mr.startTime = time.Now()
-exit:
 	for {
 		select {
 		case <-mr.stopSignal:
-			break exit
+			return
 		case metric := <-mr.metrics:
 			switch metric.Kind {
 			case INC_MILESTONE_BRANCH:

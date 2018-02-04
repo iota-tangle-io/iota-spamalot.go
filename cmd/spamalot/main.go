@@ -25,31 +25,37 @@ SOFTWARE.
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"log"
+	"net/http"
+	"strconv"
+
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/CWarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	flag "github.com/spf13/pflag"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 )
 
 var (
-	nodeAddr    *string = flag.String("node", "http://localhost:14625", "remote IRI node")
-	mwm         *int64  = flag.Int64("mwm", 14, "minimum weight magnitude")
-	depth       *int64  = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
-	timeout     *int64  = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
-	cooldown    *int64  = flag.Int64("cooldown", 0, "cooldown between spam TXs")
-	securityLvl *int64  = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
+	useNodes       *[]string = flag.StringSlice("node", []string{"http://localhost:14625"}, "remote IRI node")
+	remoteNodeList *string   = flag.String("nodelist", "", "URL to fetch a list of IRI nodes from")
+	mwm            *int64    = flag.Int64("mwm", 14, "minimum weight magnitude")
+	depth          *int64    = flag.Int64("depth", giota.Depth, "the milestone depth used by the MCMC")
+	timeout        *int64    = flag.Int64("timeout", 0, "how long to let the spammer run in seconds (if not specified infinite)")
+	cooldown       *int64    = flag.Int64("cooldown", 0, "cooldown between spam TXs")
+	securityLvl    *int64    = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
 	destAddress *string = flag.String("dest",
 		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
 
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
-	//nodes *[]string = flag.StringSlice("node", []string{"http://localhost:14265"}, "remote node to connect to")
 
 	remotePoW *bool = flag.Bool("remote-pow", false,
 		"whether to let the remote IRI node do the PoW")
@@ -70,6 +76,27 @@ var (
 		"if set, log various information to console about the spammer's state")
 )
 
+type Node struct {
+	Hostname                  string
+	Port                      int
+	LatestMilestoneIndex      int
+	LatestSolidSubtangleIndex int
+	Load                      int
+	Ping                      int
+	FreeMemory                int
+	MaxMemory                 int
+	Processors                int
+	Version                   string
+	Neighbors                 int
+}
+
+func checkNode(url string) (*spamalot.Node, error) {
+	return &spamalot.Node{
+		URL:            url,
+		AttachToTangle: canAttach(url),
+	}, nil
+}
+
 func main() {
 	flag.Parse()
 
@@ -78,10 +105,69 @@ func main() {
 	if !*remotePow {
 		powName, pow = giota.GetBestPoW()
 		log.Println("Using PoW:", powName)
-
 	}
+
+	nodes := make(map[string]bool)
+
+	if remoteNodeList != nil && *remoteNodeList != "" {
+		var hosts []Node
+		err := getJson(*remoteNodeList, &hosts)
+		if err != nil {
+			log.Println("Unable to fetch host list:", err)
+			return
+		}
+		//log.Println(len(hosts), "hosts loaded from", *remoteNodeList)
+		for _, host := range hosts {
+			url := "http://" + host.Hostname + ":" + strconv.Itoa(host.Port)
+			nodes[url] = false
+		}
+	}
+
+	if len(*useNodes) > 0 {
+		for _, host := range *useNodes {
+			nodes[host] = false
+		}
+	}
+
+	nodeChan := make(chan spamalot.Node, len(nodes))
+	var wg sync.WaitGroup
+	for url, _ := range nodes {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			n, err := checkNode(url)
+			if err != nil {
+				log.Println("Error checking node:", n, err)
+				return
+			}
+			nodeChan <- *n
+		}(url)
+	}
+
+	log.Println("Checking", len(nodes), "nodes for AttachToTangle support")
+	wg.Wait()
+
+	// I have NO idea why I need to do this to read all the values from the
+	// channel, but if we dont loop for len()+1 we miss the last value.
+	for i := 0; i <= len(nodeChan)+1; i++ {
+		n := <-nodeChan
+		nodes[n.URL] = n.AttachToTangle
+	}
+
+	var nodelist []spamalot.Node
+	var counter int
+	for url, attachToTangle := range nodes {
+		if attachToTangle {
+			counter++
+		}
+		nodelist = append(nodelist, spamalot.Node{URL: url, AttachToTangle: attachToTangle})
+	}
+
+	log.Println(len(nodelist), "nodes responded")
+	log.Println(counter, "nodes support AttachToTangle")
+
 	s, err := spamalot.New(
-		spamalot.WithNode(*nodeAddr, *remotePoW),
+		spamalot.WithNodes(nodelist),
 		spamalot.WithMWM(*mwm),
 		spamalot.WithDepth(*depth),
 		spamalot.ToAddress(*destAddress),
@@ -110,4 +196,51 @@ func main() {
 	}()
 
 	s.Start()
+}
+
+// Send a garbage attachToTangle to the node and check the error to see if it
+// supports it
+func canAttach(host string) bool {
+	var errorResponse struct {
+		Error string
+	}
+
+	request := []byte(`{"command": "attachToTangle", "trunkTransaction": "JVMTDGDPDFYHMZPMWEKKANBQSLSDTIIHAYQUMZOKHXXXGJHJDQPOMDOMNRDKYCZRUFZROZDADTHZC9999", "branchTransaction": "P9KFSJVGSPLXAEBJSHWFZLGP9GGJTIO9YITDEHATDTGAFLPLBZ9FOFWWTKMAZXZHFGQHUOXLXUALY9999", "minWeightMagnitude": 18, "trytes": ["TRYTVALUEHERE"]}`)
+	req, err := http.NewRequest("POST", host, bytes.NewBuffer(request))
+	req.Header.Set("X-IOTA-API-Version", "1")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+	resp, err := client.Do(req)
+
+	if err != nil {
+		log.Println("Error checking if host", host, "supports attachToTangle:", err)
+		return false
+	}
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&errorResponse)
+	if err != nil {
+		log.Println("Error unmarshalling json:", err)
+		return false
+	}
+
+	if errorResponse.Error == "Invalid trytes input" {
+		return true
+	} else if errorResponse.Error != "COMMAND attachToTangle is not available on this node" {
+		log.Println(host, errorResponse.Error)
+	}
+	return false
+}
+
+// fetch JSON from the URL and unmarshal it in to the target
+func getJson(url string, target interface{}) error {
+	r, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+
+	return json.NewDecoder(r.Body).Decode(target)
 }
