@@ -108,9 +108,14 @@ func (s *Spammer) UpdateSettings(options ...Option) error {
 	return nil
 }
 
+func WithNodes(nodes []Node) Option {
+	return func(s *Spammer) error {
+		s.nodes = append(s.nodes, nodes...)
+		return nil
+	}
+}
 func WithNode(node string, attachToTangle bool) Option {
 	return func(s *Spammer) error {
-		// TODO: check msg for validity
 		s.nodes = append(s.nodes, Node{URL: node, AttachToTangle: attachToTangle})
 		return nil
 	}
