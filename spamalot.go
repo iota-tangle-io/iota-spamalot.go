@@ -444,7 +444,7 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 		case <-w.stopSignal:
 			return
 		default:
-			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth)
+			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth, giota.NumberOfWalks, "")
 			if err != nil {
 				w.spammer.logIfVerbose("GetTransactionsToApprove error", err)
 				continue
