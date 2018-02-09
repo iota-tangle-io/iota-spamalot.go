@@ -44,8 +44,8 @@ const (
 )
 
 type Metric struct {
-	Kind MetricType  `json:"Kind" bson:"Kind"`
-	Data interface{} `json:"Data" bson:"Data"`
+	Kind MetricType  `json:"kind" bson:"kind"`
+	Data interface{} `json:"data" bson:"data"`
 }
 
 type Summary struct {

@@ -351,7 +351,12 @@ func (s *Spammer) Start() {
 			select {
 			case <-s.stopSignal:
 				return
-			case s.txsChan <- *txns:
+			default:
+				select {
+				case <-s.stopSignal:
+					return
+				case s.txsChan <- *txns:
+				}
 			}
 		}
 	}
@@ -430,8 +435,16 @@ func (w worker) getNonZeroTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 				BranchHash: txnHash,
 			}
 
-			tipsChan <- tip
-
+			select {
+			case <-w.stopSignal:
+				return
+			default:
+				select {
+				case <-w.stopSignal:
+					return
+				case tipsChan <- tip:
+				}
+			}
 		}
 	}
 }
@@ -470,8 +483,16 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 				BranchHash: tips.BranchTransaction,
 			}
 
-			tipsChan <- tip
-
+			select {
+			case <-w.stopSignal:
+				return
+			default:
+				select {
+				case <-w.stopSignal:
+					return
+				case tipsChan <- tip:
+				}
+			}
 		}
 	}
 }
@@ -480,75 +501,78 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-
 		select {
 		case <-w.stopSignal:
 			return
-			// read next tx to processes
-		case txn, ok := <-txnChan:
-			if !ok {
+		default:
+			select {
+			case <-w.stopSignal:
 				return
-			}
-
-			switch {
-			case !w.spammer.localPoW && w.node.AttachToTangle:
-
-				w.spammer.logIfVerbose("attaching to tangle")
-
-				at := giota.AttachToTangleRequest{
-					TrunkTransaction:   txn.Trunk,
-					BranchTransaction:  txn.Branch,
-					MinWeightMagnitude: w.spammer.mwm,
-					Trytes:             txn.Transactions,
-				}
-
-				attached, err := w.api.AttachToTangle(&at)
-				if err != nil {
-					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
-					log.Println("Error attaching to tangle:", err)
-					continue
-				}
-
-				txn.Transactions = attached.Trytes
-			default:
-
-				// lock so only one worker is doing PoW at a time
-				w.spammer.powMu.Lock()
-				w.spammer.logIfVerbose("doing PoW")
-
-				err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
-				if err != nil {
-					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
-					log.Println("Error doing PoW:", err)
-					w.spammer.powMu.Unlock()
-					continue
-				}
-				w.spammer.powMu.Unlock()
-			}
-
-			err := w.api.BroadcastTransactions(txn.Transactions)
-
-			w.spammer.RLock()
-			defer w.spammer.RUnlock()
-			if err != nil {
-				w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
-				log.Println(w.node, "ERROR:", err)
-				continue
-			}
-
-			// this will auto print metrics to console
-			w.spammer.metrics.addMetric(INC_SUCCESSFUL_TX, txandnode{txn, w.node})
-
-			// wait the cooldown before accepting a new TX
-			if w.spammer.cooldown > 0 {
-				select {
-				case <-w.stopSignal:
+				// read next tx to processes
+			case txn, ok := <-txnChan:
+				if !ok {
 					return
-				case <-time.After(w.spammer.cooldown):
+				}
+
+				switch {
+				case !w.spammer.localPoW && w.node.AttachToTangle:
+
+					w.spammer.logIfVerbose("attaching to tangle")
+
+					at := giota.AttachToTangleRequest{
+						TrunkTransaction:   txn.Trunk,
+						BranchTransaction:  txn.Branch,
+						MinWeightMagnitude: w.spammer.mwm,
+						Trytes:             txn.Transactions,
+					}
+
+					attached, err := w.api.AttachToTangle(&at)
+					if err != nil {
+						w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
+						log.Println("Error attaching to tangle:", err)
+						continue
+					}
+
+					txn.Transactions = attached.Trytes
+				default:
+
+					// lock so only one worker is doing PoW at a time
+					w.spammer.powMu.Lock()
+					w.spammer.logIfVerbose("doing PoW")
+
+					err := doPow(&txn, w.spammer.depth, txn.Transactions, w.spammer.mwm, w.spammer.pow)
+					if err != nil {
+						w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
+						log.Println("Error doing PoW:", err)
+						w.spammer.powMu.Unlock()
+						continue
+					}
+					w.spammer.powMu.Unlock()
+				}
+
+				err := w.api.BroadcastTransactions(txn.Transactions)
+
+				w.spammer.RLock()
+				defer w.spammer.RUnlock()
+				if err != nil {
+					w.spammer.metrics.addMetric(INC_FAILED_TX, nil)
+					log.Println(w.node, "ERROR:", err)
+					continue
+				}
+
+				// this will auto print metrics to console
+				w.spammer.metrics.addMetric(INC_SUCCESSFUL_TX, txandnode{txn, w.node})
+
+				// wait the cooldown before accepting a new TX
+				if w.spammer.cooldown > 0 {
+					select {
+					case <-w.stopSignal:
+						return
+					case <-time.After(w.spammer.cooldown):
+					}
 				}
 			}
 		}
-
 	}
 }
 
