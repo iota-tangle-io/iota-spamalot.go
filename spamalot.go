@@ -258,13 +258,13 @@ func (s *Spammer) Start() {
 	if err != nil {
 		panic(err)
 	}
-
+	_ = tmsg
 	trs := []giota.Transfer{
 		giota.Transfer{
 			Address: recipientT,
 			Value:   0,
 			Tag:     ttag,
-			Message: tmsg,
+			//Message: tmsg,
 		},
 	}
 
@@ -272,8 +272,8 @@ func (s *Spammer) Start() {
 
 	log.Println("Using IRI nodes:", s.nodes)
 
-	s.txsChan = make(chan Transaction, 50)
-	s.tipsChan = make(chan Tips, 50)
+	s.txsChan = make(chan Transaction)
+	s.tipsChan = make(chan Tips)
 	s.stopSignal = make(chan struct{})
 	s.metrics = newMetricsRouter()
 
@@ -320,13 +320,21 @@ func (s *Spammer) Start() {
 
 	// iterate randomly over available nodes and create
 	// shallow txs to send to workers for processing
+	type apiandnode struct {
+		API *giota.API
+		URL string
+	}
+	nodeAPIs := []apiandnode{}
+	for _, node := range s.nodes {
+		nodeAPIs = append(nodeAPIs, apiandnode{giota.NewAPI(node.URL, nil), node.URL})
+	}
 	for {
 		select {
 		case <-s.stopSignal:
 			return
 		default:
-			node := s.nodes[rand.Intn(len(s.nodes))]
-			api := giota.NewAPI(node.URL, nil)
+			tuple := nodeAPIs[rand.Intn(len(s.nodes))]
+			api := tuple.API
 			bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 			if err != nil {
 				s.metrics.addMetric(INC_FAILED_TX, nil)
@@ -337,7 +345,7 @@ func (s *Spammer) Start() {
 			txns, err := s.buildTransactions(bdl, s.pow)
 			if err != nil {
 				s.metrics.addMetric(INC_FAILED_TX, nil)
-				s.logIfVerbose("Error building txn", node.URL, err)
+				s.logIfVerbose("Error building txn", tuple.URL, err)
 				continue
 			}
 
