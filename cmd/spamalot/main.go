@@ -58,13 +58,13 @@ var (
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
 
-	filterTrunk *bool = flag.Bool("trunk", true,
+	filterTrunk *bool = flag.Bool("trunk", false,
 		"do not send a transaction with our own transaction as a trunk")
 
-	filterBranch *bool = flag.Bool("branch", true,
+	filterBranch *bool = flag.Bool("branch", false,
 		"do not send a transaction with our own transaction as a branch")
 
-	filterMilestone *bool = flag.Bool("milestone", true,
+	filterMilestone *bool = flag.Bool("milestone", false,
 		"do not send a transaction with a milestone as a trunk or branch")
 
 	remotePow *bool = flag.Bool("pow", false,
