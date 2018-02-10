@@ -36,6 +36,10 @@ import (
 	"github.com/CWarner818/giota"
 )
 
+const (
+	maxTimestampTrytes = "L99999999"
+)
+
 type Node struct {
 	URL            string
 	AttachToTangle bool
@@ -682,7 +686,12 @@ func doPow(tra *Transaction, depth int64, trytes []giota.Transaction, mwm int64,
 			trytes[i].BranchTransaction = tra.Trunk
 		}
 
+		timestamp := giota.Int2Trits(time.Now().UnixNano()/1000000, giota.TimestampTrinarySize).Trytes()
+		trytes[i].AttachmentTimestamp = timestamp
+		trytes[i].AttachmentTimestampLowerBound = ""
+		trytes[i].AttachmentTimestampUpperBound = maxTimestampTrytes
 		trytes[i].Nonce, err = pow(trytes[i].Trytes(), int(mwm))
+
 		if err != nil {
 			return err
 		}
