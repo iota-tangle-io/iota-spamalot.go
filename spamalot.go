@@ -239,7 +239,7 @@ func (s *Spammer) Start() {
 	if err != nil {
 		panic(err)
 	}
-	_ = tmsg
+
 	trs := []giota.Transfer{
 		giota.Transfer{
 			Address: recipientT,
