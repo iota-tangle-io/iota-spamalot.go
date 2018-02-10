@@ -26,7 +26,6 @@ SOFTWARE.
 package spamalot
 
 import (
-	"errors"
 	"log"
 	"math/rand"
 	"strings"
@@ -63,10 +62,6 @@ type Spammer struct {
 	destAddress string
 	tag         string
 	message     string
-
-	filterTrunk     bool
-	filterBranch    bool
-	filterMilestone bool
 
 	remotePoW bool
 
@@ -160,24 +155,6 @@ func WithPoW(pow giota.PowFunc) Option {
 		return nil
 	}
 }
-func FilterTrunk(filter bool) Option {
-	return func(s *Spammer) error {
-		s.filterTrunk = filter
-		return nil
-	}
-}
-func FilterBranch(filter bool) Option {
-	return func(s *Spammer) error {
-		s.filterBranch = filter
-		return nil
-	}
-}
-func FilterMilestone(filter bool) Option {
-	return func(s *Spammer) error {
-		s.filterMilestone = filter
-		return nil
-	}
-}
 
 func WithVerboseLogging(verboseLogging bool) Option {
 	return func(s *Spammer) error {
@@ -268,7 +245,7 @@ func (s *Spammer) Start() {
 			Address: recipientT,
 			Value:   0,
 			Tag:     ttag,
-			//Message: tmsg,
+			Message: tmsg,
 		},
 	}
 
@@ -668,32 +645,18 @@ func (s *Spammer) buildTransactions(trytes []giota.Transaction, pow giota.PowFun
 
 		if strings.Contains(string(tips.Trunk.Address), milestoneAddr) {
 			s.metrics.addMetric(INC_MILESTONE_TRUNK, nil)
-			if s.filterMilestone {
-				return nil, errors.New("Trunk txn is a milestone")
-			}
 
 		} else if strings.Contains(string(tips.Branch.Address), milestoneAddr) {
 			s.metrics.addMetric(INC_MILESTONE_BRANCH, nil)
-			if s.filterMilestone {
-				return nil, errors.New("Branch txn is a milestone")
-			}
 		}
 
 		if bothAreBad {
 			s.metrics.addMetric(INC_BAD_TRUNK_AND_BRANCH, nil)
-			if s.filterTrunk || s.filterBranch {
-				return nil, errors.New("Trunk and branch txn tag is ours")
-			}
 		} else if trunkIsBad {
 			s.metrics.addMetric(INC_BAD_TRUNK, nil)
-			if s.filterTrunk {
-				return nil, errors.New("Trunk txn tag is ours")
-			}
+
 		} else if branchIsBad {
 			s.metrics.addMetric(INC_BAD_BRANCH, nil)
-			if s.filterBranch {
-				return nil, errors.New("Branch txn tag is ours")
-			}
 		}
 
 		return &Transaction{
