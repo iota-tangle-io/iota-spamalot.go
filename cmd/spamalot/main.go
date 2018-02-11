@@ -37,7 +37,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CWarner818/giota"
+	"github.com/coreos/bbolt"
+	"github.com/cwarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	"github.com/kr/pretty"
 	flag "github.com/spf13/pflag"
@@ -171,7 +172,12 @@ func main() {
 	if *filterNonRemotePoWNodes {
 		log.Println("will only use nodes which support remote PoW")
 	}
-
+	db, err := bolt.Open("spamalot.db", 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	database := spamalot.NewDatabase(db)
 	s, err := spamalot.New(
 		spamalot.WithNodes(nodelist),
 		spamalot.WithMWM(*mwm),
@@ -186,6 +192,7 @@ func main() {
 		spamalot.WithVerboseLogging(*verboseLogging),
 		spamalot.WithStrategy(*strategy),
 		spamalot.WithLocalPoW(*localPoW),
+		spamalot.WithDatabase(database),
 	)
 
 	if err != nil {

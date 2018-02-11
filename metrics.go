@@ -71,10 +71,11 @@ type txandnode struct {
 	node Node
 }
 
-func newMetricsRouter() *metricsrouter {
+func newMetricsRouter(db *Database) *metricsrouter {
 	return &metricsrouter{
 		metrics:    make(chan Metric),
 		stopSignal: make(chan struct{}),
+		db:         db,
 	}
 }
 
@@ -87,6 +88,8 @@ type metricsrouter struct {
 
 	txsSucceeded, txsFailed, badBranch, badTrunk, badTrunkAndBranch int
 	milestoneTrunk, milestoneBranch                                 int
+
+	db *Database
 }
 
 func (mr *metricsrouter) stop() {
@@ -104,6 +107,7 @@ func (mr *metricsrouter) addRelay(relay chan<- Metric) {
 
 func (mr *metricsrouter) collect() {
 	mr.startTime = time.Now()
+	mr.db.dbNewRun(mr.startTime.Format(time.RFC3339))
 	for {
 		select {
 		case <-mr.stopSignal:
@@ -136,6 +140,9 @@ func (mr *metricsrouter) collect() {
 
 func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	tx := txAndNode.tx
+	// Save transaction to database
+	mr.db.dbLogTransactions(tx.Transactions)
+
 	node := txAndNode.node
 	var hash giota.Trytes
 	if len(tx.Transactions) > 1 {

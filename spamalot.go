@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CWarner818/giota"
+	"github.com/cwarner818/giota"
 )
 
 const (
@@ -84,6 +84,10 @@ type Spammer struct {
 	strategy    string
 	metrics     *metricsrouter
 	metricRelay chan<- Metric
+
+	db      *Database
+	started time.Time
+	runKey  string
 }
 
 type Option func(*Spammer) error
@@ -211,6 +215,13 @@ func WithMetricsRelay(relay chan<- Metric) Option {
 	}
 }
 
+func WithDatabase(db *Database) Option {
+	return func(s *Spammer) error {
+		s.db = db
+		return nil
+	}
+}
+
 func (s *Spammer) Close() error {
 	return s.Stop()
 }
@@ -256,7 +267,7 @@ func (s *Spammer) Start() {
 	s.txsChan = make(chan Transaction)
 	s.tipsChan = make(chan Tips)
 	s.stopSignal = make(chan struct{})
-	s.metrics = newMetricsRouter()
+	s.metrics = newMetricsRouter(s.db)
 
 	if s.metricRelay != nil {
 		s.metrics.addRelay(s.metricRelay)
