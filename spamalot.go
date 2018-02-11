@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CWarner818/giota"
+	"github.com/cwarner818/giota"
 )
 
 const (
@@ -84,6 +84,15 @@ type Spammer struct {
 	strategy    string
 	metrics     *metricsrouter
 	metricRelay chan<- Metric
+}
+
+func (s *Spammer) NewWorker(node Node) *Worker {
+	return &Worker{
+		node:       node,
+		api:        giota.NewAPI(node.URL, nil),
+		spammer:    s,
+		stopSignal: s.stopSignal,
+	}
 }
 
 type Option func(*Spammer) error
@@ -273,7 +282,7 @@ func (s *Spammer) Start() {
 	}
 
 	for _, node := range s.nodes {
-		w := worker{
+		w := Worker{
 			node:       node,
 			api:        giota.NewAPI(node.URL, nil),
 			spammer:    s,
@@ -352,6 +361,8 @@ func (s *Spammer) Start() {
 	}
 }
 
+/*
+<<<<<<< HEAD
 type worker struct {
 	node       Node
 	api        *giota.API
@@ -566,6 +577,9 @@ func (w worker) spam(txnChan <-chan Transaction, wg *sync.WaitGroup) {
 	}
 }
 
+=======
+>>>>>>> 6bec463719bfa349e2f65f8dc7bc16a3192f6fbc
+*/
 func (s *Spammer) Stop() error {
 	// nil the tip and txs channel so that send/receive
 	// on those channels becomes blocking
@@ -586,11 +600,6 @@ func (s *Spammer) IsRunning() bool {
 	s.RLock()
 	defer s.RUnlock()
 	return s.running
-}
-
-type Tips struct {
-	Trunk, Branch         giota.Transaction
-	TrunkHash, BranchHash giota.Trytes
 }
 
 type Transaction struct {
@@ -669,6 +678,9 @@ func (s *Spammer) buildTransactions(trytes []giota.Transaction, pow giota.PowFun
 
 }
 
+/*
+<<<<<<< HEAD
+
 func doPow(tra *Transaction, depth int64, trytes []giota.Transaction, mwm int64, pow giota.PowFunc) error {
 	var prev giota.Trytes
 	var err error
@@ -705,3 +717,6 @@ func padTag(tag string) string {
 		}
 	}
 }
+=======
+>>>>>>> 6bec463719bfa349e2f65f8dc7bc16a3192f6fbc
+*/

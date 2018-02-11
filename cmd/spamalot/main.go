@@ -37,7 +37,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CWarner818/giota"
+	"github.com/cwarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	"github.com/kr/pretty"
 	flag "github.com/spf13/pflag"
