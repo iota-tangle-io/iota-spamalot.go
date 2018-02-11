@@ -27,7 +27,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/CWarner818/giota"
+	"github.com/cwarner818/giota"
 )
 
 type MetricType byte
@@ -163,10 +163,10 @@ func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	// send current state of the spammer
 	if mr.relay != nil {
 		summary := Summary{
-			TXsSucceeded:   mr.txsSucceeded, TXsFailed: mr.txsFailed,
-			BadBranch:      mr.badBranch, BadTrunk: mr.badBranch, BadTrunkAndBranch: mr.badTrunkAndBranch,
+			TXsSucceeded: mr.txsSucceeded, TXsFailed: mr.txsFailed,
+			BadBranch: mr.badBranch, BadTrunk: mr.badBranch, BadTrunkAndBranch: mr.badTrunkAndBranch,
 			MilestoneTrunk: mr.milestoneTrunk, MilestoneBranch: mr.milestoneBranch,
-			TPS:            tps, ErrorRate: 100 - successRate,
+			TPS: tps, ErrorRate: 100 - successRate,
 		}
 		mr.relay <- Metric{Kind: SUMMARY, Data: summary}
 
