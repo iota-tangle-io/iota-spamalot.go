@@ -33,14 +33,14 @@ import (
 type MetricType byte
 
 const (
-	INC_MILESTONE_BRANCH     MetricType = 0
-	INC_MILESTONE_TRUNK      MetricType = 1
-	INC_BAD_TRUNK            MetricType = 2
-	INC_BAD_BRANCH           MetricType = 3
-	INC_BAD_TRUNK_AND_BRANCH MetricType = 4
-	INC_FAILED_TX            MetricType = 5
-	INC_SUCCESSFUL_TX        MetricType = 6
-	SUMMARY                  MetricType = 7
+	INC_MILESTONE_BRANCH MetricType = iota
+	INC_MILESTONE_TRUNK
+	INC_BAD_TRUNK
+	INC_BAD_BRANCH
+	INC_BAD_TRUNK_AND_BRANCH
+	INC_FAILED_TX
+	INC_SUCCESSFUL_TX
+	SUMMARY
 )
 
 type Metric struct {
