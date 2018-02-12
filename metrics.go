@@ -107,7 +107,7 @@ func (mr *metricsrouter) addRelay(relay chan<- Metric) {
 
 func (mr *metricsrouter) collect() {
 	mr.startTime = time.Now()
-	mr.db.dbNewRun(mr.startTime.Format(time.RFC3339))
+	mr.db.dbNewRun(mr.startTime.Format(rfc3339nano))
 	for {
 		select {
 		case <-mr.stopSignal:
