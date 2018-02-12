@@ -71,7 +71,7 @@ var (
 	verboseLogging *bool = flag.Bool("verbose", false,
 		"if set, log various information to console about the spammer's state")
 
-	strategy *string = flag.String("strategy", "non zero promote", "strategy to use for spamming")
+	strategy *string = flag.String("strategy", "", "strategy to use for spamming")
 )
 
 type Node struct {
