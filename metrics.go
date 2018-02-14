@@ -141,7 +141,7 @@ func (mr *metricsrouter) collect() {
 func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	tx := txAndNode.tx
 	// Save transaction to database
-	mr.db.dbLogTransactions(tx.Transactions)
+	mr.db.LogSentTransactions(tx.Transactions)
 
 	node := txAndNode.node
 	var hash giota.Trytes

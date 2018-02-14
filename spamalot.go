@@ -484,6 +484,9 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 				BranchHash: tips.BranchTransaction,
 			}
 
+			// Save tips in our db for later retrieval if needed
+			w.spammer.db.LogTips(txns.Trytes)
+
 			select {
 			case <-w.stopSignal:
 				return

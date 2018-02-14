@@ -33,25 +33,27 @@ func (s *Database) dbNewRun(runKey string) {
 	s.runKey = runKey
 
 	s.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("transactions"))
+		_, err := tx.CreateBucketIfNotExists([]byte("transactions"))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 
-		b, err = tx.CreateBucketIfNotExists([]byte("runs"))
+		runs, err := tx.CreateBucketIfNotExists([]byte("runs"))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 
-		runBucket, err := b.CreateBucketIfNotExists([]byte(runKey))
+		runBucket, err := runs.CreateBucketIfNotExists([]byte(runKey))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		b, err = runBucket.CreateBucketIfNotExists([]byte("transactions"))
+
+		_, err = runBucket.CreateBucketIfNotExists([]byte("sent"))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		b, err = runBucket.CreateBucketIfNotExists([]byte("logs"))
+
+		_, err = runBucket.CreateBucketIfNotExists([]byte("logs"))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
@@ -72,7 +74,33 @@ func (s *Database) dbLog(msg string) {
 	})
 }
 
-func (s *Database) dbLogTransactions(txns []giota.Transaction) {
+func (s *Database) LogTips(txns []giota.Transaction) {
+	s.Update(func(tx *bolt.Tx) error {
+
+		// Store hash => transaction
+		txnsBucket := tx.Bucket([]byte("transactions"))
+		if txnsBucket == nil {
+			log.Fatal("NIL BUCKET")
+		}
+		//b = transactions.Bucket([]byte("transactions"))
+		for _, txn := range txns {
+			json, err := txn.MarshalJSON()
+			if err != nil {
+				log.Println("ERROR JSON:", err)
+				return err
+			}
+
+			err = txnsBucket.Put([]byte(txn.Hash()), json)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func (s *Database) LogSentTransactions(txns []giota.Transaction) {
 	// Check to make sure we are using a database
 	if s.DB == nil {
 		return
@@ -121,18 +149,22 @@ func (s *Database) dbLogTransactions(txns []giota.Transaction) {
 			}
 		}
 
-		/*
-			b := tx.Bucket([]byte("runs"))
-			runBucket := b.Bucket([]byte(s.runKey))
-			// Store timestamp => hash
-			b = txnsBucket.Bucket([]byte("timestamp"))
-			for _, txn := range txns {
-				err := b.Put([]byte(txn.Timestamp.Format(rfc3339nano)), []byte(txn.Hash()))
-				if err != nil {
-					return err
-				}
+		b := tx.Bucket([]byte("runs"))
+		runBucket := b.Bucket([]byte(s.runKey))
+		// Store timestamp => hash
+		//thisRun := runBucket.Bucket([]byte("timestamp"))
+		b = runBucket.Bucket([]byte("sent"))
+		if b == nil {
+			log.Fatal("nil bucket")
+		}
+		for _, txn := range txns {
+			err := b.Put([]byte(
+				txn.Timestamp.Format(rfc3339nano)),
+				[]byte(txn.Hash()))
+			if err != nil {
+				return err
 			}
-		*/
+		}
 
 		return nil
 	})
