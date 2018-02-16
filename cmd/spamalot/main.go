@@ -37,6 +37,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coreos/bbolt"
 	"github.com/cwarner818/giota"
 	spamalot "github.com/iota-tangle-io/iota-spamalot.go"
 	"github.com/kr/pretty"
@@ -70,7 +71,9 @@ var (
 	verboseLogging *bool = flag.Bool("verbose", false,
 		"if set, log various information to console about the spammer's state")
 
-	strategy *string = flag.String("strategy", "non zero promote", "strategy to use for spamming")
+	strategy *string = flag.String("strategy", "", "strategy to use for spamming")
+	useDb    *bool   = flag.Bool("db", false,
+		"use a local database to cache transactions")
 )
 
 type Node struct {
@@ -172,6 +175,15 @@ func main() {
 		log.Println("will only use nodes which support remote PoW")
 	}
 
+	var database *spamalot.Database
+	if *useDb {
+		db, err := bolt.Open("spamalot.db", 0600, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
+		database = spamalot.NewDatabase(db)
+	}
 	s, err := spamalot.New(
 		spamalot.WithNodes(nodelist),
 		spamalot.WithMWM(*mwm),
@@ -186,6 +198,7 @@ func main() {
 		spamalot.WithVerboseLogging(*verboseLogging),
 		spamalot.WithStrategy(*strategy),
 		spamalot.WithLocalPoW(*localPoW),
+		spamalot.WithDatabase(database),
 	)
 
 	if err != nil {
