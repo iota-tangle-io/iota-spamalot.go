@@ -475,7 +475,7 @@ func (w worker) loadOrFetchTips(tips *Tips) error {
 
 	} else {
 		w.spammer.metrics.addMetric(INC_GET_CACHED_TX, nil)
-		log.Println("Loaded trunk:", tips.TrunkHash)
+		//log.Println("Loaded trunk:", tips.TrunkHash)
 	}
 
 	if storedTxns[1] == nil {

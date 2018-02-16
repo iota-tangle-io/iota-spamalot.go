@@ -26,7 +26,7 @@ func NewDatabase(db *bolt.DB) *Database {
 
 func (s *Database) dbNewRun(runKey string) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
+	if s == nil || s.DB == nil {
 		return
 	}
 
@@ -63,7 +63,7 @@ func (s *Database) dbNewRun(runKey string) {
 
 func (s *Database) dbLog(msg string) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
+	if s == nil || s.DB == nil {
 		return
 	}
 	s.Update(func(tx *bolt.Tx) error {
@@ -76,8 +76,8 @@ func (s *Database) dbLog(msg string) {
 
 func (s *Database) GetTransactions(txns []giota.Trytes) ([]*giota.Transaction, error) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
-		return nil, nil
+	if s == nil || s.DB == nil {
+		return make([]*giota.Transaction, len(txns)), nil
 	}
 	output := make([]*giota.Transaction, len(txns))
 	err := s.View(func(tx *bolt.Tx) error {
@@ -111,7 +111,7 @@ func (s *Database) GetTransactions(txns []giota.Trytes) ([]*giota.Transaction, e
 }
 func (s *Database) LogTips(txns []giota.Transaction) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
+	if s == nil || s.DB == nil {
 		return
 	}
 	s.Update(func(tx *bolt.Tx) error {
@@ -140,7 +140,7 @@ func (s *Database) LogTips(txns []giota.Transaction) {
 }
 func (s *Database) StoreTransactions(txns []giota.Transaction) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
+	if s == nil || s.DB == nil {
 		return
 	}
 	s.Update(func(tx *bolt.Tx) error {
@@ -171,7 +171,7 @@ func (s *Database) StoreTransactions(txns []giota.Transaction) {
 
 func (s *Database) LogSentTransactions(txns []giota.Transaction) {
 	// Check to make sure we are using a database
-	if s.DB == nil {
+	if s == nil || s.DB == nil {
 		return
 	}
 	/*

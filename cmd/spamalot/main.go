@@ -72,6 +72,8 @@ var (
 		"if set, log various information to console about the spammer's state")
 
 	strategy *string = flag.String("strategy", "", "strategy to use for spamming")
+	useDb    *bool   = flag.Bool("db", false,
+		"use a local database to cache transactions")
 )
 
 type Node struct {
@@ -172,12 +174,16 @@ func main() {
 	if *filterNonRemotePoWNodes {
 		log.Println("will only use nodes which support remote PoW")
 	}
-	db, err := bolt.Open("spamalot.db", 0600, nil)
-	if err != nil {
-		log.Fatal(err)
+
+	var database *spamalot.Database
+	if *useDb {
+		db, err := bolt.Open("spamalot.db", 0600, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer db.Close()
+		database = spamalot.NewDatabase(db)
 	}
-	defer db.Close()
-	database := spamalot.NewDatabase(db)
 	s, err := spamalot.New(
 		spamalot.WithNodes(nodelist),
 		spamalot.WithMWM(*mwm),

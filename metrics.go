@@ -171,7 +171,7 @@ func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	successRate := 100 * (float64(mr.txsSucceeded) / (float64(mr.txsSucceeded) + float64(mr.txsFailed)))
 	log.Printf("%.2f TPS -- success rate %.0f%% ", tps, successRate)
 
-	log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d Cached: %d Loaded: %d",
+	log.Printf("Duration: %s Count: %d Milestone Trunk: %d Milestone Branch: %d Bad Trunk: %d Bad Branch: %d Both: %d Fetched: %d Cached: %d",
 		dur.String(), mr.txsSucceeded, mr.milestoneTrunk,
 		mr.milestoneBranch, mr.badTrunk, mr.badBranch, mr.badTrunkAndBranch, mr.txCached, mr.txRetrieved)
 
