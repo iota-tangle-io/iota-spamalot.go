@@ -74,6 +74,33 @@ func (s *Database) dbLog(msg string) {
 	})
 }
 
+// Returns all sent transactions from the current run
+func (s *Database) GetSentTransactionHashes() ([]giota.Trytes, error) {
+	// Check to make sure we are using a database
+	if s == nil || s.DB == nil {
+		return nil, nil
+	}
+	var output []giota.Trytes
+	err := s.View(func(tx *bolt.Tx) error {
+		// Assume bucket exists and has keys
+		b := tx.Bucket([]byte("runs"))
+		runBucket := b.Bucket([]byte(s.runKey))
+		// Store timestamp => hash
+		b = runBucket.Bucket([]byte("sent"))
+
+		b.ForEach(func(k, v []byte) error {
+			output = append(output, giota.Trytes(v))
+			return nil
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return output, nil
+}
+
+// Gets the full transaction data for the supplied txns
 func (s *Database) GetTransactions(txns []giota.Trytes) ([]*giota.Transaction, error) {
 	// Check to make sure we are using a database
 	if s == nil || s.DB == nil {

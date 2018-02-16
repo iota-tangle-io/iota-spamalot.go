@@ -233,6 +233,30 @@ func (s *Spammer) logIfVerbose(str ...interface{}) {
 	}
 }
 
+func (s *Spammer) GetConfirmationRate() (float64, error) {
+	api := giota.NewAPI(s.nodes[0].URL, nil)
+
+	txns, err := s.db.GetSentTransactionHashes()
+	if err != nil {
+		return 0, err
+	}
+	states, err := api.GetLatestInclusion(txns)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var confirmed, total float64
+	total = float64(len(states))
+	for _, s := range states {
+		if s {
+			confirmed++
+		}
+	}
+
+	return confirmed / total * 100, nil
+}
+
 func (s *Spammer) Start() {
 	log.Println("IOTΛ Spamalot starting")
 	seed := giota.NewSeed()
@@ -322,8 +346,33 @@ func (s *Spammer) Start() {
 	for _, node := range s.nodes {
 		nodeAPIs = append(nodeAPIs, apiandnode{giota.NewAPI(node.URL, nil), node.URL})
 	}
+
+	cRateChan := make(chan float64)
+
+	go func() {
+		for {
+			select {
+			case <-s.stopSignal:
+				return
+			case <-time.After(60 * time.Second):
+				s.logIfVerbose("Checking confirmation rate")
+				log.Println("Checking c rate")
+				cRate, err := s.GetConfirmationRate()
+				if err != nil {
+					log.Println("Error checking confirmation rate:", err)
+					return
+				}
+				cRateChan <- cRate
+			}
+		}
+	}()
+
 	for {
 		select {
+		case cRate := <-cRateChan:
+			log.Println("Updating c rate")
+			s.metrics.addMetric(SET_CONFIRMATION_RATE, cRate)
+
 		case <-s.stopSignal:
 			return
 		default:
@@ -637,7 +686,8 @@ func (s *Spammer) Stop() error {
 	s.tipsChan = nil
 
 	// once for tip and once for spam goroutine per node + main loop
-	for i := 0; i < len(s.nodes)*2+1; i++ {
+	// + 1 for confirmation rate checking go routine
+	for i := 0; i < len(s.nodes)*2+1+1; i++ {
 		s.stopSignal <- struct{}{}
 	}
 
