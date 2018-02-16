@@ -468,18 +468,24 @@ func (w worker) loadOrFetchTips(tips *Tips) error {
 	fetchTxns := make([]giota.Trytes, 0)
 
 	if storedTxns[0] == nil {
-		//log.Println("Fetching trunk:", tips.TrunkHash)
 		fetchTxns = append(fetchTxns, tips.TrunkHash)
 		fetchTrunk = true
+		w.spammer.metrics.addMetric(INC_NEW_CACHED_TX, nil)
+		//log.Println("Fetching trunk:", tips.TrunkHash)
+
 	} else {
-		//log.Println("Loaded trunk:", tips.TrunkHash)
+		w.spammer.metrics.addMetric(INC_GET_CACHED_TX, nil)
+		log.Println("Loaded trunk:", tips.TrunkHash)
 	}
 
 	if storedTxns[1] == nil {
-		//log.Println("Fetching branch:", tips.BranchHash)
 		fetchTxns = append(fetchTxns, tips.BranchHash)
 		fetchBranch = true
+		w.spammer.metrics.addMetric(INC_NEW_CACHED_TX, nil)
+		//log.Println("Fetching branch:", tips.BranchHash)
+
 	} else {
+		w.spammer.metrics.addMetric(INC_GET_CACHED_TX, nil)
 		//log.Println("Loaded branch:", tips.BranchHash)
 	}
 
@@ -530,25 +536,17 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 				w.spammer.logIfVerbose("loadOrFetchTips error", err)
 				continue
 			}
-
-			/*
-				w.spammer.logIfVerbose("Got tips from", w.node.URL)
-
-
-				// Save tips in our db for later retrieval if needed
-				w.spammer.db.LogTips(txns.Trytes)
-
+			select {
+			case <-w.stopSignal:
+				return
+			default:
 				select {
 				case <-w.stopSignal:
 					return
-				default:
-					select {
-					case <-w.stopSignal:
-						return
-					case tipsChan <- tip:
-					}
+				case tipsChan <- *tip:
 				}
-			*/
+			}
+
 		}
 	}
 }
