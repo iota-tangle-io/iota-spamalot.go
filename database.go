@@ -74,7 +74,46 @@ func (s *Database) dbLog(msg string) {
 	})
 }
 
+func (s *Database) GetTransactions(txns []giota.Trytes) ([]*giota.Transaction, error) {
+	// Check to make sure we are using a database
+	if s.DB == nil {
+		return nil, nil
+	}
+	output := make([]*giota.Transaction, len(txns))
+	err := s.View(func(tx *bolt.Tx) error {
+		txnsBucket := tx.Bucket([]byte("transactions"))
+		if txnsBucket == nil {
+			log.Fatal("NIL BUCKET")
+		}
+
+		for i, txn := range txns {
+			v := txnsBucket.Get([]byte(txn))
+			if v == nil {
+				output[i] = nil
+				continue
+			}
+
+			t := &giota.Transaction{}
+
+			err := t.UnmarshalJSON(v)
+			if err != nil {
+				return err
+			}
+			output[i] = t
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return output, nil
+}
 func (s *Database) LogTips(txns []giota.Transaction) {
+	// Check to make sure we are using a database
+	if s.DB == nil {
+		return
+	}
 	s.Update(func(tx *bolt.Tx) error {
 
 		// Store hash => transaction
@@ -90,6 +129,36 @@ func (s *Database) LogTips(txns []giota.Transaction) {
 				return err
 			}
 
+			err = txnsBucket.Put([]byte(txn.Hash()), json)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+func (s *Database) StoreTransactions(txns []giota.Transaction) {
+	// Check to make sure we are using a database
+	if s.DB == nil {
+		return
+	}
+	s.Update(func(tx *bolt.Tx) error {
+
+		// Store hash => transaction
+		txnsBucket := tx.Bucket([]byte("transactions"))
+		if txnsBucket == nil {
+			log.Fatal("NIL BUCKET")
+		}
+		//b = transactions.Bucket([]byte("transactions"))
+		for _, txn := range txns {
+			json, err := txn.MarshalJSON()
+			if err != nil {
+				log.Println("ERROR JSON:", err)
+				return err
+			}
+
+			//log.Println("Storing:", txn.Hash())
 			err = txnsBucket.Put([]byte(txn.Hash()), json)
 			if err != nil {
 				return err

@@ -26,6 +26,7 @@ SOFTWARE.
 package spamalot
 
 import (
+	"errors"
 	"log"
 	"math/rand"
 	"strings"
@@ -450,6 +451,59 @@ func (w worker) getNonZeroTips(tipsChan chan Tips, wg *sync.WaitGroup) {
 	}
 }
 
+// retrieve the tips from the database or fetch them via api and set tips to
+// their completed transactions
+func (w worker) loadOrFetchTips(tips *Tips) error {
+	//Query the database to see if we have the transactions cached
+	storedTxns, err := w.spammer.db.GetTransactions([]giota.Trytes{
+		tips.TrunkHash,
+		tips.BranchHash,
+	})
+
+	if err != nil {
+		return errors.New("Error loading stored tips: " + err.Error())
+	}
+
+	var fetchTrunk, fetchBranch bool
+	fetchTxns := make([]giota.Trytes, 0)
+
+	if storedTxns[0] == nil {
+		//log.Println("Fetching trunk:", tips.TrunkHash)
+		fetchTxns = append(fetchTxns, tips.TrunkHash)
+		fetchTrunk = true
+	} else {
+		//log.Println("Loaded trunk:", tips.TrunkHash)
+	}
+
+	if storedTxns[1] == nil {
+		//log.Println("Fetching branch:", tips.BranchHash)
+		fetchTxns = append(fetchTxns, tips.BranchHash)
+		fetchBranch = true
+	} else {
+		//log.Println("Loaded branch:", tips.BranchHash)
+	}
+
+	txns, err := w.api.GetTrytes(fetchTxns)
+	if err != nil {
+		return errors.New("Error fetching new tips: " + err.Error())
+	}
+
+	if fetchTrunk && fetchBranch {
+		tips.Trunk = txns.Trytes[0]
+		tips.Branch = txns.Trytes[1]
+		w.spammer.db.StoreTransactions(txns.Trytes)
+	} else if fetchTrunk {
+		tips.Trunk = txns.Trytes[0]
+		w.spammer.db.StoreTransactions(txns.Trytes)
+	} else if fetchBranch {
+		tips.Branch = txns.Trytes[0]
+		w.spammer.db.StoreTransactions(txns.Trytes)
+	}
+
+	return nil
+
+}
+
 // retrieves tips from the given node and puts them into the tips channel
 func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -464,39 +518,37 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 				continue
 			}
 
-			txns, err := w.api.GetTrytes([]giota.Trytes{
-				tips.TrunkTransaction,
-				tips.BranchTransaction,
-			})
-
-			if err != nil {
-				//return nil, err
-				w.spammer.logIfVerbose("GetTrytes error:", err)
-				continue
-			}
-
-			w.spammer.logIfVerbose("Got tips from", w.node.URL)
-
-			tip := Tips{
-				Trunk:      txns.Trytes[0],
+			tip := &Tips{
 				TrunkHash:  tips.TrunkTransaction,
-				Branch:     txns.Trytes[1],
 				BranchHash: tips.BranchTransaction,
 			}
 
-			// Save tips in our db for later retrieval if needed
-			w.spammer.db.LogTips(txns.Trytes)
+			// Retrieved cached transactions from the database
+			// or fetch them via the IRI API and store them
+			err = w.loadOrFetchTips(tip)
+			if err != nil {
+				w.spammer.logIfVerbose("loadOrFetchTips error", err)
+				continue
+			}
 
-			select {
-			case <-w.stopSignal:
-				return
-			default:
+			/*
+				w.spammer.logIfVerbose("Got tips from", w.node.URL)
+
+
+				// Save tips in our db for later retrieval if needed
+				w.spammer.db.LogTips(txns.Trytes)
+
 				select {
 				case <-w.stopSignal:
 					return
-				case tipsChan <- tip:
+				default:
+					select {
+					case <-w.stopSignal:
+						return
+					case tipsChan <- tip:
+					}
 				}
-			}
+			*/
 		}
 	}
 }
