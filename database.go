@@ -109,64 +109,57 @@ func (s *Database) GetTransactions(txns []giota.Trytes) ([]*giota.Transaction, e
 	}
 	return output, nil
 }
-func (s *Database) LogTips(txns []giota.Transaction) {
+
+func (s *Database) saveTransactions(tx *bolt.Tx, txns []giota.Transaction) error {
 	// Check to make sure we are using a database
 	if s == nil || s.DB == nil {
-		return
-	}
-	s.Update(func(tx *bolt.Tx) error {
-
-		// Store hash => transaction
-		txnsBucket := tx.Bucket([]byte("transactions"))
-		if txnsBucket == nil {
-			log.Fatal("NIL BUCKET")
-		}
-		//b = transactions.Bucket([]byte("transactions"))
-		for _, txn := range txns {
-			json, err := txn.MarshalJSON()
-			if err != nil {
-				log.Println("ERROR JSON:", err)
-				return err
-			}
-
-			err = txnsBucket.Put([]byte(txn.Hash()), json)
-			if err != nil {
-				return err
-			}
-		}
-
 		return nil
-	})
+	}
+
+	// Store hash => transaction
+	txnsBucket := tx.Bucket([]byte("transactions"))
+	if txnsBucket == nil {
+		log.Fatal("NIL BUCKET")
+	}
+	//b = transactions.Bucket([]byte("transactions"))
+	for _, txn := range txns {
+		json, err := txn.MarshalJSON()
+		if err != nil {
+			log.Println("ERROR JSON:", err)
+			return err
+		}
+
+		err = txnsBucket.Put([]byte(txn.Hash()), json)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
+
+// Save the transactions to the database cache
 func (s *Database) StoreTransactions(txns []giota.Transaction) {
 	// Check to make sure we are using a database
 	if s == nil || s.DB == nil {
 		return
 	}
-	s.Update(func(tx *bolt.Tx) error {
+	// Start a writable transaction.
+	tx, err := s.Begin(true)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
 
-		// Store hash => transaction
-		txnsBucket := tx.Bucket([]byte("transactions"))
-		if txnsBucket == nil {
-			log.Fatal("NIL BUCKET")
-		}
-		//b = transactions.Bucket([]byte("transactions"))
-		for _, txn := range txns {
-			json, err := txn.MarshalJSON()
-			if err != nil {
-				log.Println("ERROR JSON:", err)
-				return err
-			}
+	// Use the transaction...
+	err = s.saveTransactions(tx, txns)
+	if err != nil {
+		return
+	}
 
-			//log.Println("Storing:", txn.Hash())
-			err = txnsBucket.Put([]byte(txn.Hash()), json)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	// Commit the transaction and check for error.
+	if err := tx.Commit(); err != nil {
+		return
+	}
 }
 
 func (s *Database) LogSentTransactions(txns []giota.Transaction) {
@@ -196,45 +189,39 @@ func (s *Database) LogSentTransactions(txns []giota.Transaction) {
 		    logs
 		      timestamp => log message
 	*/
+	// Start a writable transaction.
+	tx, err := s.Begin(true)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
 
-	s.Update(func(tx *bolt.Tx) error {
+	// Save the transaction to cache
+	err = s.saveTransactions(tx, txns)
+	if err != nil {
+		return
+	}
 
-		// Store hash => transaction
-		txnsBucket := tx.Bucket([]byte("transactions"))
-		if txnsBucket == nil {
-			log.Fatal("NIL BUCKET")
+	// Save the sent txn to the run log
+	b := tx.Bucket([]byte("runs"))
+	runBucket := b.Bucket([]byte(s.runKey))
+	// Store timestamp => hash
+	b = runBucket.Bucket([]byte("sent"))
+	if b == nil {
+		log.Fatal("nil bucket")
+	}
+	for _, txn := range txns {
+		err := b.Put([]byte(
+			txn.Timestamp.Format(rfc3339nano)),
+			[]byte(txn.Hash()))
+		if err != nil {
+			return
 		}
-		//b = transactions.Bucket([]byte("transactions"))
-		for _, txn := range txns {
-			json, err := txn.MarshalJSON()
-			if err != nil {
-				log.Println("ERROR JSON:", err)
-				return err
-			}
+	}
 
-			err = txnsBucket.Put([]byte(txn.Hash()), json)
-			if err != nil {
-				return err
-			}
-		}
+	// Commit the transaction and check for error.
+	if err := tx.Commit(); err != nil {
+		return
+	}
 
-		b := tx.Bucket([]byte("runs"))
-		runBucket := b.Bucket([]byte(s.runKey))
-		// Store timestamp => hash
-		//thisRun := runBucket.Bucket([]byte("timestamp"))
-		b = runBucket.Bucket([]byte("sent"))
-		if b == nil {
-			log.Fatal("nil bucket")
-		}
-		for _, txn := range txns {
-			err := b.Put([]byte(
-				txn.Timestamp.Format(rfc3339nano)),
-				[]byte(txn.Hash()))
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
 }
