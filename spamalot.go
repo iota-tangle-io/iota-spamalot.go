@@ -26,7 +26,6 @@ SOFTWARE.
 package spamalot
 
 import (
-	"errors"
 	"log"
 	"math/rand"
 	"strings"
