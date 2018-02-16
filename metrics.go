@@ -90,8 +90,8 @@ type metricsrouter struct {
 }
 
 func (mr *metricsrouter) stop() {
-	mr.metrics = nil
 	mr.stopSignal <- struct{}{}
+	mr.metrics = nil
 }
 
 func (mr *metricsrouter) addMetric(kind MetricType, data interface{}) {
