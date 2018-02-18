@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"github.com/cwarner818/giota"
-	"github.com/k0kubun/pp"
 )
 
 const (
@@ -244,30 +243,28 @@ func (s *Spammer) logIfVerbose(str ...interface{}) {
 	}
 }
 
-func (s *Spammer) GetConfirmationRate() (float64, error) {
+func (s *Spammer) UpdateConfirmedTransactions() error {
 	api := giota.NewAPI(s.nodes[0].URL, nil)
 
 	txns, err := s.db.GetUnconfirmedTransactionHashes()
 	if err != nil {
-		return 0, err
+		return err
 	}
 	log.Println("UNCONFIRMED COUNT:", len(txns))
 
 	if len(txns) == 0 {
-		return 0, nil
+		return nil
 	}
 
 	states, err := api.GetLatestInclusion(txns)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	var newlyConfirmed []giota.Trytes
-	var confirmed, total float64
-	total = float64(len(states))
-	for i, s := range states {
-		if s {
-			confirmed++
+	for i, state := range states {
+		if state {
+			s.metrics.addMetric(INC_CONFIRMED_TX, nil)
 			newlyConfirmed = append(newlyConfirmed, txns[i])
 		}
 	}
@@ -278,7 +275,7 @@ func (s *Spammer) GetConfirmationRate() (float64, error) {
 		log.Println("Error removing confrimed txns from db:", err)
 	}
 
-	return confirmed / total * 100, nil
+	return nil
 }
 
 func (s *Spammer) Start() {
@@ -382,14 +379,13 @@ func (s *Spammer) Start() {
 			select {
 			case <-s.stopSignal:
 				return
-			case <-time.After(10 * time.Second):
+			case <-time.After(60 * time.Second):
 				s.logIfVerbose("Checking confirmation rate")
-				cRate, err := s.GetConfirmationRate()
+				err := s.UpdateConfirmedTransactions()
 				if err != nil {
 					log.Println("Error checking confirmation rate:", err)
-					continue
 				}
-				cRateChan <- cRate
+
 			}
 		}
 	}()
@@ -409,7 +405,6 @@ func (s *Spammer) Start() {
 				msg, err := json.Marshal(metrics)
 				if err != nil {
 					log.Println("Error marshalling metrics:", err)
-					pp.Print(metrics)
 					msg = []byte("metrics error")
 				}
 
