@@ -25,6 +25,7 @@ package spamalot
 
 import (
 	"log"
+	"math"
 	"time"
 
 	"github.com/cwarner818/giota"
@@ -150,7 +151,30 @@ func (mr *metricsrouter) collect() {
 		}
 	}
 }
+func (mr *metricsrouter) getSummary() *Summary {
+	dur := time.Since(mr.startTime)
+	tps := float64(mr.txsSucceeded) / dur.Seconds()
+	successRate := 100 * (float64(mr.txsSucceeded) / (float64(mr.txsSucceeded) + float64(mr.txsFailed)))
 
+	errorRate := 100 - successRate
+	if math.IsNaN(errorRate) {
+		errorRate = 0
+	}
+	return &Summary{
+		TXsSucceeded:      mr.txsSucceeded,
+		TXsFailed:         mr.txsFailed,
+		BadBranch:         mr.badBranch,
+		BadTrunk:          mr.badBranch,
+		BadTrunkAndBranch: mr.badTrunkAndBranch,
+		MilestoneTrunk:    mr.milestoneTrunk,
+		MilestoneBranch:   mr.milestoneBranch,
+		TPS:               tps,
+		ErrorRate:         errorRate,
+		CachedTX:          mr.txCached,
+		RetrievedTX:       mr.txRetrieved,
+		ConfirmationRate:  mr.confirmationRate,
+	}
+}
 func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 	tx := txAndNode.tx
 	// Save transaction to database
@@ -182,15 +206,7 @@ func (mr *metricsrouter) printMetrics(txAndNode txandnode) {
 
 	// send current state of the spammer
 	if mr.relay != nil {
-		summary := Summary{
-			TXsSucceeded: mr.txsSucceeded, TXsFailed: mr.txsFailed,
-			BadBranch: mr.badBranch, BadTrunk: mr.badBranch, BadTrunkAndBranch: mr.badTrunkAndBranch,
-			MilestoneTrunk: mr.milestoneTrunk, MilestoneBranch: mr.milestoneBranch,
-			TPS: tps, ErrorRate: 100 - successRate,
-			CachedTX:         mr.txCached,
-			RetrievedTX:      mr.txRetrieved,
-			ConfirmationRate: mr.confirmationRate,
-		}
+		summary := mr.getSummary()
 		mr.relay <- Metric{Kind: SUMMARY, Data: summary}
 
 		// send tx

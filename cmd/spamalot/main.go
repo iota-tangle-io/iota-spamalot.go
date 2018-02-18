@@ -74,6 +74,8 @@ var (
 	strategy *string = flag.String("strategy", "", "strategy to use for spamming")
 	useDb    *bool   = flag.Bool("db", false,
 		"use a local database to cache transactions")
+	sendMetrics *bool = flag.Bool("metrics", true,
+		"send spammer metrics in spam message field")
 )
 
 type Node struct {
@@ -199,6 +201,7 @@ func main() {
 		spamalot.WithStrategy(*strategy),
 		spamalot.WithLocalPoW(*localPoW),
 		spamalot.WithDatabase(database),
+		spamalot.WithMessageMetrics(*sendMetrics),
 	)
 
 	if err != nil {

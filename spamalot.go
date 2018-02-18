@@ -26,6 +26,7 @@ SOFTWARE.
 package spamalot
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"math/rand"
@@ -34,6 +35,7 @@ import (
 	"time"
 
 	"github.com/cwarner818/giota"
+	"github.com/k0kubun/pp"
 )
 
 const (
@@ -89,6 +91,8 @@ type Spammer struct {
 	db      *Database
 	started time.Time
 	runKey  string
+
+	sendMetrics bool
 }
 
 type Option func(*Spammer) error
@@ -223,6 +227,13 @@ func WithDatabase(db *Database) Option {
 	}
 }
 
+func WithMessageMetrics(m bool) Option {
+	return func(s *Spammer) error {
+		s.sendMetrics = m
+		return nil
+	}
+}
+
 func (s *Spammer) Close() error {
 	return s.Stop()
 }
@@ -350,13 +361,16 @@ func (s *Spammer) Start() {
 	cRateChan := make(chan float64)
 
 	go func() {
+		// If we arent using a database, dont start the go routine
+		if s.db == nil {
+			return
+		}
 		for {
 			select {
 			case <-s.stopSignal:
 				return
 			case <-time.After(60 * time.Second):
 				s.logIfVerbose("Checking confirmation rate")
-				log.Println("Checking c rate")
 				cRate, err := s.GetConfirmationRate()
 				if err != nil {
 					log.Println("Error checking confirmation rate:", err)
@@ -370,7 +384,6 @@ func (s *Spammer) Start() {
 	for {
 		select {
 		case cRate := <-cRateChan:
-			log.Println("Updating c rate")
 			s.metrics.addMetric(SET_CONFIRMATION_RATE, cRate)
 
 		case <-s.stopSignal:
@@ -378,6 +391,21 @@ func (s *Spammer) Start() {
 		default:
 			tuple := nodeAPIs[rand.Intn(len(s.nodes))]
 			api := tuple.API
+			if s.sendMetrics {
+				metrics := s.metrics.getSummary()
+				msg, err := json.Marshal(metrics)
+				if err != nil {
+					log.Println("Error marshalling metrics:", err)
+					pp.Print(metrics)
+					msg = []byte("metrics error")
+				}
+
+				trs[0].Message, err = giota.FromString(string(msg))
+				if err != nil {
+					log.Println("Error converting message metrics to trytes:", err)
+					trs[0].Message = ""
+				}
+			}
 			bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 			if err != nil {
 				s.metrics.addMetric(INC_FAILED_TX, nil)
@@ -414,10 +442,11 @@ func (s *Spammer) Start() {
 }
 
 type worker struct {
-	node       Node
-	api        *giota.API
-	spammer    *Spammer
-	stopSignal chan struct{}
+	node        Node
+	api         *giota.API
+	spammer     *Spammer
+	stopSignal  chan struct{}
+	sendMetrics bool
 }
 
 // retrieves tips from the given node and puts them into the tips channel
@@ -567,7 +596,7 @@ func (w worker) getTxnsToApprove(tipsChan chan Tips, wg *sync.WaitGroup) {
 		case <-w.stopSignal:
 			return
 		default:
-			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth, giota.NumberOfWalks, "")
+			tips, err := w.api.GetTransactionsToApprove(w.spammer.depth, giota.DefaultNumberOfWalks, "")
 			if err != nil {
 				w.spammer.logIfVerbose("GetTransactionsToApprove error", err)
 				continue
@@ -687,7 +716,12 @@ func (s *Spammer) Stop() error {
 
 	// once for tip and once for spam goroutine per node + main loop
 	// + 1 for confirmation rate checking go routine
-	for i := 0; i < len(s.nodes)*2+1+1; i++ {
+	stops := len(s.nodes)*2 + 1
+	if s.db != nil {
+		stops++
+	}
+
+	for i := 0; i < stops; i++ {
 		s.stopSignal <- struct{}{}
 	}
 
