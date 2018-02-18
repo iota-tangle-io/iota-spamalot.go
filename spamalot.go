@@ -250,7 +250,6 @@ func (s *Spammer) UpdateConfirmedTransactions() error {
 	if err != nil {
 		return err
 	}
-	log.Println("UNCONFIRMED COUNT:", len(txns))
 
 	if len(txns) == 0 {
 		return nil
@@ -269,7 +268,7 @@ func (s *Spammer) UpdateConfirmedTransactions() error {
 		}
 	}
 
-	log.Println("Removing", len(newlyConfirmed), "txns from unconfirmed")
+	s.logIfVerbose("Removing", len(newlyConfirmed), "txns from unconfirmed")
 	err = s.db.RemoveConfirmedTransactions(newlyConfirmed)
 	if err != nil {
 		log.Println("Error removing confrimed txns from db:", err)
@@ -368,8 +367,6 @@ func (s *Spammer) Start() {
 		nodeAPIs = append(nodeAPIs, apiandnode{giota.NewAPI(node.URL, nil), node.URL})
 	}
 
-	cRateChan := make(chan float64)
-
 	go func() {
 		// If we arent using a database, dont start the go routine
 		if s.db == nil {
@@ -392,8 +389,6 @@ func (s *Spammer) Start() {
 
 	for {
 		select {
-		case cRate := <-cRateChan:
-			s.metrics.addMetric(SET_CONFIRMATION_RATE, cRate)
 
 		case <-s.stopSignal:
 			return
