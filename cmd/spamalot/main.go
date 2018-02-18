@@ -28,6 +28,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 
@@ -44,6 +45,10 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+func init() {
+
+}
+
 var (
 	useNodes       *[]string = flag.StringSlice("node", []string{"http://localhost:14625"}, "remote IRI node")
 	remoteNodeList *string   = flag.String("nodelist", "", "URL to fetch a list of IRI nodes from")
@@ -53,8 +58,7 @@ var (
 	cooldown       *int64    = flag.Int64("cooldown", 0, "cooldown between spam TXs")
 	securityLvl    *int64    = flag.Int64("security-lvl", 2, "the security lvl used for generating addresses")
 
-	destAddress *string = flag.String("dest",
-		"SPPRLTTIVYUONPOPQSWGCPMZWDOMQGWFUEPKUQIVUKROCHRNCR9MXNGNQSAGLKUDX9MZQWCPFJQS9DWAY", "address to send to")
+	destAddress *string = flag.String("dest", "<random>", "address to send to")
 
 	tag *string = flag.String("tag", "999SPAMALOT", "transaction tag")
 	msg *string = flag.String("msg", "GOSPAMMER9VERSION9ONE9THREE", "transaction message")
@@ -107,6 +111,12 @@ func checkNode(url string) (*spamalot.Node, error) {
 func main() {
 	flag.Parse()
 
+	if *destAddress == "<random>" {
+		*destAddress = ""
+		for i := 0; i < 81; i++ {
+			*destAddress += string(giota.TryteAlphabet[rand.Intn(27)])
+		}
+	}
 	var pow giota.PowFunc
 	var powName string
 	if !*remotePow {
