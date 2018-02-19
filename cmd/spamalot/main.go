@@ -96,6 +96,10 @@ type Node struct {
 	Neighbors                 int
 }
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func checkNode(url string) (*spamalot.Node, error) {
 	canAttach, err := canAttach(url)
 	if err != nil {
@@ -116,6 +120,7 @@ func main() {
 		for i := 0; i < 81; i++ {
 			*destAddress += string(giota.TryteAlphabet[rand.Intn(27)])
 		}
+		log.Println("Using random address:", *destAddress)
 	}
 	var pow giota.PowFunc
 	var powName string
