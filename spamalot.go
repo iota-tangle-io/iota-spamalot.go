@@ -403,11 +403,7 @@ func (s *Spammer) Start() {
 					msg = []byte("metrics error")
 				}
 
-				trs[0].Message, err = giota.FromString(string(msg))
-				if err != nil {
-					log.Println("Error converting message metrics to trytes:", err)
-					trs[0].Message = ""
-				}
+				trs[0].Message = giota.FromBytes(msg)
 			}
 			bdl, err = giota.PrepareTransfers(api, seed, trs, nil, "", int(s.securityLvl))
 			if err != nil {
