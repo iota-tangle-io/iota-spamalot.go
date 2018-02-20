@@ -280,6 +280,13 @@ func (s *Spammer) Start() {
 	log.Println("IOTΛ Spamalot starting")
 	seed := giota.NewSeed()
 
+	// If no address was specified, pick a random one
+	if s.destAddress == "" {
+		for i := 0; i < 81; i++ {
+			s.destAddress += string(giota.TryteAlphabet[rand.Intn(27)])
+		}
+	}
+
 	recipientT, err := giota.ToAddress(s.destAddress)
 	if err != nil {
 		panic(err)
