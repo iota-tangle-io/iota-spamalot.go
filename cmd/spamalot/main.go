@@ -30,6 +30,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"runtime"
 	"strconv"
 
 	"os"
@@ -80,6 +81,8 @@ var (
 		"use a local database to cache transactions")
 	sendMetrics *bool = flag.Bool("metrics", true,
 		"send spammer metrics in spam message field")
+
+	numCPU *int = flag.Int("cores", runtime.NumCPU(), "how many cpu cores to use")
 )
 
 type Node struct {
@@ -128,6 +131,9 @@ func main() {
 		powName, pow = giota.GetBestPoW()
 		log.Println("Using PoW:", powName)
 	}
+
+	runtime.GOMAXPROCS(*numCPU)
+	giota.PowProcs = *numCPU
 
 	nodes := make(map[string]bool)
 
